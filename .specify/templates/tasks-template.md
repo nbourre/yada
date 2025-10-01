@@ -71,10 +71,14 @@
 
 ## Phase 3.5: Polish
 - [ ] T019 [P] Unit tests for validation in tests/unit/test_validation.py
-- [ ] T020 Performance tests (<200ms)
-- [ ] T021 [P] Update docs/api.md
-- [ ] T022 Remove duplication
-- [ ] T023 Run manual-testing.md
+- [ ] T020 Performance tests (<200ms interactive, <5s batch)
+- [ ] T021 [P] Cross-platform testing (Windows, macOS, Linux)
+- [ ] T022 [P] Multi-interface validation (CLI, Web UI, API)
+- [ ] T023 [P] Installation procedure testing (≤3 commands)
+- [ ] T024 [P] Code quality gates (linting, type checking, coverage 80%+)
+- [ ] T025 [P] Update docs/api.md
+- [ ] T026 Remove duplication
+- [ ] T027 Run manual-testing.md
 
 ## Dependencies
 - Tests (T004-T007) before implementation (T008-T014)

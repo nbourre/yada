@@ -47,7 +47,12 @@
 ## Constitution Check
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] **Installation Simplicity**: Solution requires ≤3 commands to install on any platform
+- [ ] **Platform Independence**: Core functionality works identically on Windows, macOS, Linux
+- [ ] **Multi-Interface Architecture**: Business logic separated from interface layers (CLI/Web/API)
+- [ ] **Code Quality**: Plan includes linting, type checking, 80%+ test coverage, complexity limits
+- [ ] **Performance Excellence**: Response time targets defined (≤200ms interactive, ≤5s batch)
+- [ ] **Technology Neutrality**: No vendor lock-in, configurable backends, abstracted dependencies
 
 ## Project Structure
 

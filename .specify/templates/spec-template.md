@@ -78,6 +78,14 @@ When creating this spec from a user prompt:
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
 - **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
+### Non-Functional Requirements *(constitutional compliance)*
+- **NFR-001**: Installation MUST complete in ≤3 commands on Windows, macOS, and Linux
+- **NFR-002**: Core functionality MUST work identically across all supported platforms
+- **NFR-003**: Feature MUST be accessible via CLI, Web UI, and programmatic API
+- **NFR-004**: Interactive operations MUST respond within 200ms, batch operations within 5s
+- **NFR-005**: Code MUST achieve 80%+ test coverage and pass all quality gates
+- **NFR-006**: Solution MUST NOT create vendor lock-in or platform dependencies
+
 ### Key Entities *(include if feature involves data)*
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
