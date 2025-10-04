@@ -30,12 +30,12 @@
 - **[P]**: Can run in parallel (different files, no dependencies)
 - Include exact file paths in descriptions
 
-## Phase 3.1: Setup
-- [ ] T001 Create Electron + TypeScript project structure with package.json, tsconfig.json, main/renderer separation
-- [ ] T002 Install dependencies: Electron 27+, React 18, better-sqlite3, saxes, Cytoscape.js, Jest, Playwright
-- [ ] T003 [P] Configure ESLint + Prettier for TypeScript/React in .eslintrc.js and .prettierrc
-- [ ] T004 [P] Configure Jest for unit testing in jest.config.js with TypeScript support
-- [ ] T005 [P] Configure Playwright for E2E testing in playwright.config.ts
+## Phase 3.1: Setup ✅ COMPLETE
+- [x] T001 Create Electron + TypeScript project structure with package.json, tsconfig.json, main/renderer separation
+- [x] T002 Install dependencies: Electron 27+, React 18, sql.js (SQLite), saxes, Cytoscape.js, Jest, Playwright
+- [x] T003 [P] Configure ESLint + Prettier for TypeScript/React in .eslintrc.js and .prettierrc
+- [x] T004 [P] Configure Jest for unit testing in jest.config.js with TypeScript support
+- [x] T005 [P] Configure Playwright for E2E testing in playwright.config.ts
 
 ## Phase 3.2: Tests First (TDD) ⚠️ MUST COMPLETE BEFORE 3.3
 **CRITICAL: These tests MUST be written and MUST FAIL before ANY implementation**

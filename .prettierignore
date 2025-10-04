@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+coverage/
+
+# Generated files
+*.generated.*
+*.min.js
+*.min.css
+
+# Documentation that shouldn't be formatted
+CHANGELOG.md
+LICENSE
+*.log
+
+# Package files
+package-lock.json
+yarn.lock
+
+# Test outputs
+test-results/
+playwright-report/
+
+# Electron build outputs
+app-builds/
+electron-builder-output/
+
+# Large data files
+*.xml
+*.fmp12
+test-data/
+sample-files/

@@ -1,0 +1,78 @@
+/**
+ * Electron Preload Script
+ * Exposes secure APIs to the renderer process
+ */
+
+import { contextBridge, ipcRenderer } from 'electron';
+
+// Define the API interface for TypeScript
+export interface ElectronAPI {
+  // File operations
+  selectFile: () => Promise<string | null>;
+  saveFile: (defaultPath?: string) => Promise<string | null>;
+  showItemInFolder: (path: string) => Promise<void>;
+  openExternal: (url: string) => Promise<void>;
+
+  // App info
+  getAppInfo: () => Promise<{
+    name: string;
+    version: string;
+    platform: string;
+    arch: string;
+  }>;
+
+  // Menu events
+  onMenuEvent: (callback: (event: string, data?: any) => void) => void;
+  removeMenuListeners: () => void;
+}
+
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+const electronAPI: ElectronAPI = {
+  // File operations
+  selectFile: () => ipcRenderer.invoke('select-file'),
+  saveFile: (defaultPath?: string) => ipcRenderer.invoke('save-file', defaultPath),
+  showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path),
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+
+  // App info
+  getAppInfo: () => ipcRenderer.invoke('get-app-info'),
+
+  // Menu events
+  onMenuEvent: (callback: (event: string, data?: any) => void) => {
+    const menuHandlers = ['menu-new-project', 'menu-open-file', 'menu-export', 'menu-navigate'];
+
+    menuHandlers.forEach(event => {
+      ipcRenderer.on(event, (_, data) => callback(event, data));
+    });
+  },
+
+  removeMenuListeners: () => {
+    const menuHandlers = ['menu-new-project', 'menu-open-file', 'menu-export', 'menu-navigate'];
+
+    menuHandlers.forEach(event => {
+      ipcRenderer.removeAllListeners(event);
+    });
+  },
+};
+
+// Use `contextBridge` APIs to expose Electron APIs to
+// renderer only if context isolation is enabled, otherwise
+// just add to the DOM global.
+if (process.contextIsolated) {
+  try {
+    contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+  } catch (error) {
+    console.error('Failed to expose electronAPI:', error);
+  }
+} else {
+  // Fallback for when context isolation is disabled
+  (window as any).electronAPI = electronAPI;
+}
+
+// Type declaration for the global window object
+declare global {
+  interface Window {
+    electronAPI: ElectronAPI;
+  }
+}
