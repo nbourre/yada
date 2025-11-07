@@ -98,8 +98,13 @@ export class XMLParserService {
       await this.parseXMLContent(xmlContent);
       console.log('Parser: XML parsing completed, saving to database...');
 
+
       // Save parsed data to database
       await this.saveParsedDataToDatabase();
+      // Save relationships to database
+      for (const rel of this.relationships) {
+        await databaseService.createRelationship(rel);
+      }
       console.log('Parser: Database save completed');
 
       // Finalize project
@@ -232,6 +237,7 @@ export class XMLParserService {
         name: tableData['@_name'] || 'Unnamed Table',
         occurrence: tableData['@_occurrence'] || tableData['@_name'] || 'Main',
         sourceTable: tableData['@_sourceTable'],
+        baseTable: tableData['@_baseTable'] || '',
         recordCount: tableData['@_recordCount'] ? parseInt(tableData['@_recordCount']) : undefined,
         fields: [],
         relationships: [],
@@ -316,29 +322,75 @@ export class XMLParserService {
   }
   
   private processRelationshipGraph(graph: any): void {
-    const relationships = graph.Relationship;
-    if (!relationships) return;
-    
-    const relationshipArray = Array.isArray(relationships) ? relationships : [relationships];
-    
+    // First, process TableList to get table occurrences
+    const tableList = graph.TableList?.Table;
+    const tableOccurrences: Record<string, { id: string; name: string; baseTable: string }> = {};
+    if (tableList) {
+      const tableArray = Array.isArray(tableList) ? tableList : [tableList];
+      tableArray.forEach((tableData: any) => {
+        const name = tableData['@_name'] || '';
+        const baseTable = tableData['@_baseTable'] || '';
+        tableOccurrences[name] = {
+          id: tableData['@_id'] || this.generateId(),
+          name,
+          baseTable,
+        };
+        
+        // Create a Table object for this occurrence if not already in tables
+        const existingTable = this.tables.find(t => t.name === name);
+        if (!existingTable) {
+          const table: Table = {
+            id: tableData['@_id'] || this.generateId(),
+            projectId: this.currentProject.id!,
+            name,
+            occurrence: name,
+            baseTable,
+            sourceTable: baseTable,
+            recordCount: 0,
+            fields: [],
+            relationships: [],
+          };
+          this.tables.push(table);
+          this.stats.tableCount++;
+        }
+      });
+    }
+
+    // FileMaker DDR RelationshipGraph structure
+    const relList = graph.RelationshipList?.Relationship;
+    if (!relList) return;
+    const relationshipArray = Array.isArray(relList) ? relList : [relList];
+
     relationshipArray.forEach((relData: any) => {
-      const relationship: Relationship = {
-        id: this.generateId(),
-        projectId: this.currentProject.id!,
-        name: relData['@_name'] || 'Unnamed Relationship',
-        leftTable: relData['@_leftTable'] || relData['@_table1'],
-        leftField: relData['@_leftField'] || relData['@_field1'] || '',
-        rightTable: relData['@_rightTable'] || relData['@_table2'],
-        rightField: relData['@_rightField'] || relData['@_field2'] || '',
-        type: 'one-to-many' as RelationshipType,
-        options: {},
-      };
-      
-      this.relationships.push(relationship);
-      this.stats.relationshipCount++;
+      // Extract left/right table names
+      const leftTable = relData.LeftTable?.['@_name'] || '';
+      const rightTable = relData.RightTable?.['@_name'] || '';
+      // Extract join predicates
+      const joinList = relData.JoinPredicateList?.JoinPredicate;
+      const joinPredicates = Array.isArray(joinList) ? joinList : joinList ? [joinList] : [];
+      joinPredicates.forEach((jp: any) => {
+        const leftField = jp.LeftField?.Field?.['@_name'] || '';
+        const rightField = jp.RightField?.Field?.['@_name'] || '';
+        const relationship: Relationship = {
+          id: relData['@_id'] || this.generateId(),
+          projectId: this.currentProject.id!,
+          name: `${leftTable} → ${rightTable}`,
+          leftTable,
+          leftField,
+          rightTable,
+          rightField,
+          type: jp['@_type'] ? this.mapRelationshipType(jp['@_type']) : 'one-to-many',
+          options: {
+            allowCreation: relData.LeftTable?.['@_cascadeCreate'] === 'True',
+            allowDeletion: relData.LeftTable?.['@_cascadeDelete'] === 'True',
+            sortRecords: false,
+          },
+        };
+        this.relationships.push(relationship);
+        this.stats.relationshipCount++;
+      });
     });
-    
-    console.log(`Parser: Processed ${relationshipArray.length} relationships`);
+    console.log(`Parser: Processed ${this.relationships.length} relationships`);
   }
 
   private handleOpenTag(tagName: string, attributes: Record<string, string>): void {

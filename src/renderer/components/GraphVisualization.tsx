@@ -177,7 +177,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
           selector: 'node[type = "table"]',
           style: {
             "background-color": "#2196F3",
-            label: settings.showLabels ? "data(name)" : "",
+            label: settings.showLabels ? "data(label)" : "",
             "text-valign": "center",
             "text-halign": "center",
             color: "#ffffff",
@@ -194,7 +194,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
             "background-color": "#4CAF50",
             label:
               settings.showLabels && settings.showFieldTypes
-                ? "data(name)"
+                ? "data(label)"
                 : "",
             "text-valign": "center",
             "text-halign": "center",

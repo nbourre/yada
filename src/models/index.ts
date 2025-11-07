@@ -45,6 +45,7 @@ export interface Table extends BaseEntity {
   projectId: string;
   occurrence: string;
   sourceTable?: string;
+  baseTable?: string;
   recordCount?: number;
   fields: Field[];
   relationships: Relationship[];

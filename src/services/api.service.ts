@@ -423,12 +423,22 @@ export class ApiService {
           return this.sendError(res, 'Missing required field: format', 400, 'VALIDATION_ERROR');
         }
         if (!['json', 'xml', 'csv', 'excel', 'pdf', 'html'].includes(format)) {
-          return this.sendError(res, 'Invalid format. Must be one of: json, xml, csv, excel, pdf, html', 400, 'VALIDATION_ERROR');
+          return this.sendError(
+            res,
+            'Invalid format. Must be one of: json, xml, csv, excel, pdf, html',
+            400,
+            'VALIDATION_ERROR'
+          );
         }
 
         // Handle large export timeout for special test case
         if (projectId === 'very-large-project') {
-          return this.sendError(res, 'Export request timed out for large project', 408, 'EXPORT_TIMEOUT');
+          return this.sendError(
+            res,
+            'Export request timed out for large project',
+            408,
+            'EXPORT_TIMEOUT'
+          );
         }
 
         // Check if project exists
@@ -439,21 +449,26 @@ export class ApiService {
 
         // Check for unsupported combinations
         if (format === 'pdf' && options?.includeData) {
-          return this.sendError(res, 'PDF format does not support data export', 400, 'FORMAT_NOT_SUPPORTED');
+          return this.sendError(
+            res,
+            'PDF format does not support data export',
+            400,
+            'FORMAT_NOT_SUPPORTED'
+          );
         }
 
         // Simulate export process
         const fileExtensionMap: Record<string, string> = {
           json: 'json',
-          xml: 'xml', 
+          xml: 'xml',
           csv: 'csv',
           excel: 'xlsx',
           pdf: 'pdf',
           html: 'html',
         };
-        
+
         const actualExtension = fileExtensionMap[format] || format;
-        
+
         // Apply entity type filtering if specified
         const allEntityCounts = {
           table: project.statistics.tableCount || 0,
@@ -461,19 +476,22 @@ export class ApiService {
           layout: project.statistics.layoutCount || 0,
           script: project.statistics.scriptCount || 0,
         };
-        
+
         const filteredEntityTypes = options?.filterOptions?.entityTypes;
         const entityCounts = filteredEntityTypes
           ? Object.fromEntries(
               Object.entries(allEntityCounts).filter(([key]) => filteredEntityTypes.includes(key))
             )
           : allEntityCounts;
-        
+
+        // Generate a mock job ID that maps to the legacy export download
+        const jobId = `export-${Date.now()}`;
+
         const exportResult = {
           format,
           size: Math.floor(Math.random() * 1000000) + 10000,
           filename: `${project.name}_export_${Date.now()}.${actualExtension}`,
-          downloadUrl: `http://localhost:3000/downloads/export_${Date.now()}.${actualExtension}`,
+          downloadUrl: `/api/projects/${projectId}/export/${jobId}/download`,
           expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           metadata: {
             projectName: project.name,
@@ -722,7 +740,8 @@ export class ApiService {
         // Get tables for the project
         const tables = await databaseService.getTablesForProject(projectId);
 
-        // Build graph data for Cytoscape
+        // Build graph data for Cytoscape using real relationships
+        const relationships = await databaseService.getRelationshipsForProject(projectId);
         const elements = {
           nodes: tables.map((table) => ({
             data: {
@@ -733,32 +752,26 @@ export class ApiService {
               recordCount: 0,
             },
           })),
-          edges: [],
+          edges: relationships.map((rel, idx) => {
+            // Try to match by name, fallback to baseTable
+            const sourceTable = tables.find(t => t.name === rel.leftTable || t.baseTable === rel.leftTable);
+            const targetTable = tables.find(t => t.name === rel.rightTable || t.baseTable === rel.rightTable);
+            if (!sourceTable || !targetTable) {
+              // Skip edge if source/target not found
+              console.warn(`Skipping edge: cannot find node for relationship ${rel.id} (${rel.leftTable} -> ${rel.rightTable})`);
+              return null;
+            }
+            return {
+              data: {
+                id: rel.id || `rel-${idx}`,
+                type: 'relationship',
+                source: sourceTable.id,
+                target: targetTable.id,
+                relationshipType: rel.type,
+              },
+            };
+          }).filter(Boolean),
         };
-
-        // Create simple relationships between consecutive tables (mock)
-        interface GraphEdge {
-          data: {
-            id: string;
-            type: 'relationship';
-            source: string;
-            target: string;
-            relationshipType: string;
-          };
-        }
-        const edges = elements.edges as GraphEdge[];
-        for (let i = 0; i < tables.length - 1; i++) {
-          edges.push({
-            data: {
-              id: `rel-${i}-${i + 1}`,
-              type: 'relationship',
-              source: tables[i].id,
-              target: tables[i + 1].id,
-              relationshipType: 'one-to-many',
-            },
-          });
-        }
-
         res.json({ success: true, elements });
       } catch (error) {
         console.error('Graph endpoint error:', error);
@@ -926,15 +939,32 @@ export class ApiService {
           return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // In a real implementation, this would return the actual export file
-        // For now, return a simple JSON export
+        // Get tables and fields for rich export
+        const tables = await databaseService.getTablesForProject(projectId);
+        const fields = await databaseService.getFieldsForProject(projectId);
+
+        // Attach fields to their tables
+        const enrichedTables = tables.map(table => {
+          const tableFields = fields.filter(f => f.tableId === table.id);
+          return {
+            ...table,
+            fields: tableFields,
+          };
+        });
+
+        // Use real relationships from the database
+        const relationships = await databaseService.getRelationshipsForProject(projectId);
+
         const exportData = {
           project: {
             id: project.id,
             name: project.name,
             exportedAt: new Date().toISOString(),
+            statistics: project.statistics,
+            metadata: project.metadata,
           },
-          tables: await databaseService.getTablesForProject(projectId),
+          tables: enrichedTables,
+          relationships,
         };
 
         res.setHeader('Content-Type', 'application/json');

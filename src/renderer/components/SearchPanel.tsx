@@ -481,7 +481,14 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
                       }
                     />
                     <ListItemSecondaryAction>
-                      <IconButton edge="end">
+                      <IconButton
+                        edge="end"
+                        onClick={() => {
+                          console.log('View entity:', result);
+                          // TODO: Navigate to entity detail or open in a dialog
+                        }}
+                        title={`View ${result.type}: ${result.name}`}
+                      >
                         <Visibility />
                       </IconButton>
                     </ListItemSecondaryAction>

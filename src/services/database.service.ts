@@ -2,7 +2,7 @@
  * Mock Database service for testing purposes
  */
 
-import { Project, Table, Field } from '../models';
+import { Project, Table, Field, Relationship } from '../models';
 
 // Search result type
 interface SearchResult {
@@ -17,6 +17,20 @@ export class DatabaseService {
   private mockProjects: Map<string, Project> = new Map();
   private mockTables: Map<string, Table> = new Map();
   private mockFields: Map<string, Field> = new Map();
+  private mockRelationships: Map<string, Relationship[]> = new Map();
+  // Relationship operations
+  async createRelationship(relationship: Relationship): Promise<Relationship> {
+    if (!this.initialized) await this.initialize();
+    const rels = this.mockRelationships.get(relationship.projectId) || [];
+    rels.push(relationship);
+    this.mockRelationships.set(relationship.projectId, rels);
+    return relationship;
+  }
+
+  async getRelationshipsForProject(projectId: string): Promise<Relationship[]> {
+    if (!this.initialized) await this.initialize();
+    return this.mockRelationships.get(projectId) || [];
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
