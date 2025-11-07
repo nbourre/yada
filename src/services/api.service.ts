@@ -38,6 +38,10 @@ export class ApiService {
     this.app.use(cors());
     this.app.use(express.json({ limit: '50mb' }));
     this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+    
+    // Serve static files from the renderer build directory in production
+    const rendererPath = path.join(__dirname, '../../renderer');
+    this.app.use(express.static(rendererPath));
   }
 
   private setupUpload(): void {
@@ -71,6 +75,38 @@ export class ApiService {
   }
 
   private setupRoutes(): void {
+    // Parse uploaded file (for Electron app file uploads)
+    this.app.post('/api/parse', this.upload.single('file'), async (req, res) => {
+      try {
+        if (!req.file) {
+          return this.sendError(res, 'No file uploaded', 400, 'VALIDATION_ERROR');
+        }
+
+        console.log('API: Parsing uploaded file:', req.file.originalname);
+
+        // Parse the uploaded file
+        const result = await xmlParserService.parseFile(req.file.path);
+
+        // Clean up the uploaded file
+        try {
+          await fs.unlink(req.file.path);
+        } catch (err) {
+          console.error('Failed to delete temp file:', err);
+        }
+
+        console.log('API: Parse completed successfully');
+
+        res.json({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        console.error('API: Parse error:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.sendError(res, `Parse error: ${errorMessage}`, 500, 'PARSE_ERROR');
+      }
+    });
+
     // Parse Project (T006)
     this.app.post('/api/parse-project', async (req, res) => {
       try {
@@ -201,6 +237,45 @@ export class ApiService {
       }
     });
 
+    // Export Search Results (T007-EXPORT)
+    this.app.post('/api/search/export', async (req, res) => {
+      try {
+        const { projectId, query, results, format = 'excel' } = req.body;
+
+        if (!projectId || !query || !results) {
+          return this.sendError(
+            res,
+            'Missing required fields: projectId, query, results',
+            400,
+            'VALIDATION_ERROR'
+          );
+        }
+
+        // Basic validation of results array
+        if (!Array.isArray(results)) {
+          return this.sendError(res, 'Results must be an array', 400, 'VALIDATION_ERROR');
+        }
+
+        const filename = `search_results_${Date.now()}.${format === 'excel' ? 'xlsx' : 'json'}`;
+
+        // Mock export payload only (future: build Excel workbook)
+        const exportPayload = {
+          query,
+          projectId,
+          resultCount: results.length,
+          generatedAt: new Date().toISOString(),
+        };
+
+        const buffer = Buffer.from(JSON.stringify(exportPayload, null, 2), 'utf-8');
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+      } catch (error) {
+        console.error('Search export error:', error);
+        this.sendError(res, `Search export error: ${error}`, 500, 'INTERNAL_ERROR');
+      }
+    });
+
     // Generate Graph (T008)
     this.app.post('/api/graph', async (req, res) => {
       try {
@@ -264,7 +339,7 @@ export class ApiService {
             position: { x: 100, y: 100 },
           },
           {
-            id: 'orders-table', 
+            id: 'orders-table',
             type: 'table',
             label: 'Orders',
             properties: { system: false, recordCount: 500 },
@@ -284,7 +359,14 @@ export class ApiService {
 
         // Add field nodes if requested
         if (options.includeFields) {
-          const fieldNode: any = {
+          const fieldNode: {
+            id: string;
+            type: string;
+            label: string;
+            tableName: string;
+            properties: { system: boolean; recordCount: number };
+            position: { x: number; y: number };
+          } = {
             id: 'customer-id-field',
             type: 'field',
             label: 'CustomerID',
@@ -627,6 +709,98 @@ export class ApiService {
       }
     });
 
+    // Get Project Graph Data
+    this.app.get('/api/projects/:id/graph', async (req, res) => {
+      try {
+        const projectId = req.params.id;
+        const project = await databaseService.getProject(projectId);
+
+        if (!project) {
+          return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        // Get tables for the project
+        const tables = await databaseService.getTablesForProject(projectId);
+
+        // Build graph data for Cytoscape
+        const elements = {
+          nodes: tables.map((table) => ({
+            data: {
+              id: table.id,
+              name: table.name,
+              label: table.name,
+              type: 'table',
+              recordCount: 0,
+            },
+          })),
+          edges: [],
+        };
+
+        // Create simple relationships between consecutive tables (mock)
+        interface GraphEdge {
+          data: {
+            id: string;
+            type: 'relationship';
+            source: string;
+            target: string;
+            relationshipType: string;
+          };
+        }
+        const edges = elements.edges as GraphEdge[];
+        for (let i = 0; i < tables.length - 1; i++) {
+          edges.push({
+            data: {
+              id: `rel-${i}-${i + 1}`,
+              type: 'relationship',
+              source: tables[i].id,
+              target: tables[i + 1].id,
+              relationshipType: 'one-to-many',
+            },
+          });
+        }
+
+        res.json({ success: true, elements });
+      } catch (error) {
+        console.error('Graph endpoint error:', error);
+        this.sendError(res, `Failed to get graph data: ${error}`, 500);
+      }
+    });
+
+    // Legacy GET Search endpoint for compatibility with old UI
+    this.app.get('/api/projects/:id/search', async (req, res) => {
+      try {
+        const projectId = req.params.id;
+        const q = (req.query.q as string) || (req.query.query as string) || '';
+        const typesParam = (req.query.types as string) || '';
+        const entityTypes = typesParam
+          ? typesParam.split(',').filter(Boolean)
+          : ['table', 'field', 'layout', 'script'];
+
+        if (!projectId || !q) {
+          return this.sendError(res, 'Missing required query parameters', 400, 'VALIDATION_ERROR');
+        }
+
+        const project = await databaseService.getProject(projectId);
+        if (!project) {
+          return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        const raw = await databaseService.searchEntities(projectId, q, entityTypes);
+        const mapped = raw.map(r => ({
+          id: r.entityId,
+          type: r.entityType,
+          name: r.entityName,
+          context: r.context,
+          matches: [],
+        }));
+
+        res.json(mapped);
+      } catch (error) {
+        console.error('Legacy search error:', error);
+        this.sendError(res, `Search error: ${error}`, 500, 'INTERNAL_ERROR');
+      }
+    });
+
     // Get Project Fields (T015)
     this.app.get('/api/projects/:id/fields', async (req, res) => {
       try {
@@ -686,6 +860,89 @@ export class ApiService {
         res.json(response);
       } catch (error) {
         this.sendError(res, `Failed to get metadata: ${error}`, 500);
+      }
+    });
+
+    // Export Project Data
+    this.app.post('/api/projects/:id/export', async (req, res) => {
+      try {
+        const projectId = req.params.id;
+        const project = await databaseService.getProject(projectId);
+
+        if (!project) {
+          return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        const options = req.body || {};
+        const { format = 'json' } = options;
+
+        // Generate a job ID for async export
+        const jobId = `export-${Date.now()}`;
+
+        // In a real implementation, this would start an async export job
+        // For now, we'll return a job ID immediately
+        res.json({
+          success: true,
+          jobId,
+          message: 'Export started',
+        });
+
+        // Simulate export completion after a short delay
+        setTimeout(() => {
+          console.log(`Export job ${jobId} completed`);
+        }, 2000);
+      } catch (error) {
+        console.error('Export endpoint error:', error);
+        this.sendError(res, `Failed to start export: ${error}`, 500);
+      }
+    });
+
+    // Get Export Job Status
+    this.app.get('/api/projects/:id/export/:jobId/status', async (req, res) => {
+      try {
+        const { jobId } = req.params;
+
+        // In a real implementation, this would check actual job status
+        // For now, simulate a completed export
+        res.json({
+          status: 'completed',
+          progress: 100,
+          downloadUrl: `/api/projects/${req.params.id}/export/${jobId}/download`,
+          message: 'Export completed successfully',
+        });
+      } catch (error) {
+        console.error('Export status endpoint error:', error);
+        this.sendError(res, `Failed to get export status: ${error}`, 500);
+      }
+    });
+
+    // Download Export File
+    this.app.get('/api/projects/:id/export/:jobId/download', async (req, res) => {
+      try {
+        const projectId = req.params.id;
+        const project = await databaseService.getProject(projectId);
+
+        if (!project) {
+          return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        // In a real implementation, this would return the actual export file
+        // For now, return a simple JSON export
+        const exportData = {
+          project: {
+            id: project.id,
+            name: project.name,
+            exportedAt: new Date().toISOString(),
+          },
+          tables: await databaseService.getTablesForProject(projectId),
+        };
+
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${project.name}-export.json"`);
+        res.json(exportData);
+      } catch (error) {
+        console.error('Export download endpoint error:', error);
+        this.sendError(res, `Failed to download export: ${error}`, 500);
       }
     });
 

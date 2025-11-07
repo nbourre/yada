@@ -101,6 +101,7 @@ export default function App() {
   const [parseProgress, setParseProgress] = useState(0);
   const [parseMessage, setParseMessage] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  const [parseSuccessVisible, setParseSuccessVisible] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     severity: 'success' | 'error' | 'warning' | 'info';
@@ -110,17 +111,29 @@ export default function App() {
     setLoading(true);
     try {
       // Call our API service to get projects
-      const response = await fetch('/api/projects');
+      const response = await fetch('/api/projects', {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000), // 5 second timeout
+      });
+      
+      if (!response.ok) {
+        // If endpoint doesn't exist yet, just start with empty projects
+        console.log('Projects endpoint not available yet');
+        setProjects([]);
+        setLoading(false);
+        return;
+      }
+      
       const result = await response.json();
 
       if (result.success) {
         setProjects(result.data);
       } else {
-        showNotification('Failed to load projects', 'error');
+        setProjects([]);
       }
     } catch (error) {
-      console.error('Error loading projects:', error);
-      showNotification('Failed to connect to API', 'error');
+      console.log('Could not load projects, starting fresh:', error);
+      setProjects([]); // Start with empty projects list
     } finally {
       setLoading(false);
     }
@@ -148,20 +161,24 @@ export default function App() {
 
       // Project parsed
       window.electronAPI.onProjectParsed((project: Project) => {
-        setCurrentProject(project);
-        setProjects(prev => [...prev, project]);
-        setIsParsing(false);
-        setParseProgress(100);
-        showNotification(`Successfully parsed ${project.name}`, 'success');
-        setCurrentTab(0); // Switch to dashboard
+        console.log('Project parsed:', project);
+        try {
+          setCurrentProject(project);
+          setProjects(prev => {
+            const prevArray = Array.isArray(prev) ? prev : [];
+            return [...prevArray, project];
+          });
+          setIsParsing(false);
+          setParseProgress(100);
+          showNotification(`Successfully parsed ${project.name}`, 'success');
+          setParseSuccessVisible(true);
+          setCurrentTab(0); // Switch to dashboard
+        } catch (error) {
+          console.error('Error setting parsed project:', error);
+        }
       });
 
-      return () => {
-        // Cleanup listeners
-        window.electronAPI.removeAllListeners('progress-update');
-        window.electronAPI.removeAllListeners('error');
-        window.electronAPI.removeAllListeners('project-parsed');
-      };
+      // Note: No cleanup needed - IPC listeners are managed by the main process
     }
   }, []);
 
@@ -213,6 +230,16 @@ export default function App() {
   const handleCloseNotification = () => {
     setNotification(null);
   };
+
+  // Auto-hide parsing success banner after a short delay
+  useEffect(() => {
+    if (parseSuccessVisible && !isParsing) {
+      const timer = setTimeout(() => {
+        setParseSuccessVisible(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [parseSuccessVisible, isParsing]);
 
   return (
     <ThemeProvider theme={theme}>
@@ -329,9 +356,10 @@ export default function App() {
       )}
 
       {/* Parsing Complete Message */}
-      {parseProgress === 100 && !isParsing && (
+      {parseSuccessVisible && !isParsing && (
         <Alert
           severity="success"
+          onClose={() => setParseSuccessVisible(false)}
           sx={{ position: 'fixed', top: 80, right: 20, zIndex: 9999 }}
           data-testid="parsing-complete"
         >

@@ -12,6 +12,8 @@ export interface ElectronAPI {
   saveFile: (defaultPath?: string) => Promise<string | null>;
   showItemInFolder: (path: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  parseFile: (filePath: string) => Promise<any>;
+  writeTempFile: (fileName: string, content: string) => Promise<string>;
 
   // App info
   getAppInfo: () => Promise<{
@@ -20,6 +22,11 @@ export interface ElectronAPI {
     platform: string;
     arch: string;
   }>;
+
+  // Parsing events
+  onProgress: (callback: (progress: number, message: string) => void) => void;
+  onError: (callback: (error: string) => void) => void;
+  onProjectParsed: (callback: (project: any) => void) => void;
 
   // Menu events
   onMenuEvent: (callback: (event: string, data?: any) => void) => void;
@@ -34,9 +41,22 @@ const electronAPI: ElectronAPI = {
   saveFile: (defaultPath?: string) => ipcRenderer.invoke('save-file', defaultPath),
   showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  parseFile: (filePath: string) => ipcRenderer.invoke('parse-file', filePath),
+  writeTempFile: (fileName: string, content: string) => ipcRenderer.invoke('write-temp-file', fileName, content),
 
   // App info
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
+
+  // Parsing events
+  onProgress: (callback: (progress: number, message: string) => void) => {
+    ipcRenderer.on('parse-progress', (_, progress, message) => callback(progress, message));
+  },
+  onError: (callback: (error: string) => void) => {
+    ipcRenderer.on('parse-error', (_, error) => callback(error));
+  },
+  onProjectParsed: (callback: (project: any) => void) => {
+    ipcRenderer.on('project-parsed', (_, project) => callback(project));
+  },
 
   // Menu events
   onMenuEvent: (callback: (event: string, data?: any) => void) => {

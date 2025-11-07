@@ -54,6 +54,11 @@
     </style>
 </head>
 <body>
+    <script>
+        // Polyfill for Node.js global object in browser context
+        window.global = window;
+    </script>
+    
     <div id="root">
         <div class="loading">
             <div class="spinner"></div>

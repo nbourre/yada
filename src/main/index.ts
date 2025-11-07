@@ -6,6 +6,10 @@
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell } from 'electron';
 import { join } from 'path';
 import { spawn, ChildProcess } from 'child_process';
+import { createReadStream, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import FormData from 'form-data';
+import fetch from 'node-fetch';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -35,12 +39,11 @@ function createMainWindow(): void {
   });
 
   // Load the React application
-  if (isDev) {
-    mainWindow.loadURL(`http://localhost:${PORT}`);
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
-  }
+  // Always load from localhost since the server serves the static files
+  mainWindow.loadURL(`http://localhost:${PORT}`);
+  
+  // Always open DevTools to debug loading issues
+  mainWindow.webContents.openDevTools();
 
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {
@@ -67,14 +70,20 @@ function createMainWindow(): void {
  */
 function startServer(): Promise<void> {
   return new Promise((resolve, reject) => {
+    console.log('startServer called, isDev:', isDev);
+    
     if (isDev) {
       // In development, assume server is already running
+      console.log('Development mode - skipping server start');
       resolve();
       return;
     }
 
+    console.log('Production mode - starting server...');
     // In production, start the server process
-    const serverPath = join(__dirname, '../server/index.js');
+    const serverPath = join(__dirname, '../server/server/index.js');
+    console.log('Server path:', serverPath);
+    
     serverProcess = spawn('node', [serverPath], {
       env: { ...process.env, PORT: PORT.toString() },
       stdio: 'pipe',
@@ -88,17 +97,21 @@ function startServer(): Promise<void> {
       console.error(`Server Error: ${data}`);
     });
 
-    serverProcess.on('close', code => {
-      console.log(`Server process exited with code ${code}`);
-    });
-
     serverProcess.on('error', error => {
-      console.error('Failed to start server:', error);
+      console.error('Failed to start server process:', error);
       reject(error);
     });
 
-    // Wait a moment for server to start
-    setTimeout(() => resolve(), 2000);
+    serverProcess.on('exit', (code, signal) => {
+      console.log(`Server process exited with code ${code}, signal ${signal}`);
+    });
+
+    // Give server time to start
+    console.log('Waiting 2 seconds for server to start...');
+    setTimeout(() => {
+      console.log('Server should be ready now');
+      resolve();
+    }, 2000);
   });
 }
 
@@ -353,6 +366,71 @@ function setupIPC(): void {
       platform: process.platform,
       arch: process.arch,
     };
+  });
+
+  // Handle writing temp file
+  ipcMain.handle('write-temp-file', async (event, fileName: string, content: string) => {
+    try {
+      const tempPath = join(tmpdir(), fileName);
+      writeFileSync(tempPath, content);
+      console.log('Main: Wrote temp file:', tempPath);
+      return tempPath;
+    } catch (error) {
+      console.error('Main: Error writing temp file:', error);
+      throw error;
+    }
+  });
+
+  // Handle file parsing
+  ipcMain.handle('parse-file', async (event, filePath: string) => {
+    try {
+      console.log('Main: Starting to parse file:', filePath);
+      
+      // Send progress update
+      if (mainWindow) {
+        mainWindow.webContents.send('parse-progress', 0, 'Starting parse...');
+      }
+
+      // Call the server API to parse the file
+      const form = new FormData();
+      form.append('file', createReadStream(filePath));
+
+      const response = await fetch(`http://localhost:${PORT}/api/parse`, {
+        method: 'POST',
+        body: form as any,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      console.log('Main: Parse completed successfully', result);
+      
+      // Extract the project from the API response
+      // Server returns: { success: true, data: ParseResult }
+      // ParseResult has: { project, statistics, parseTime, errors }
+      const parseResult = result.data || result;
+      const project = parseResult.project || parseResult;
+      
+      // Send parsed project to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('project-parsed', project);
+      }
+
+      return project;
+    } catch (error) {
+      console.error('Main: Parse error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Send error to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('parse-error', errorMessage);
+      }
+
+      throw error;
+    }
   });
 }
 

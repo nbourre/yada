@@ -45,7 +45,7 @@ interface ProjectDashboardProps {
 
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   project,
-  projects,
+  projects = [],  // Default to empty array if undefined
   onProjectSelect,
   loading,
 }) => {

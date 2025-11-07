@@ -14,6 +14,7 @@ interface ElectronAPI {
 
   // File parsing
   parseFile: (filePath: string) => Promise<any>;
+  writeTempFile: (fileName: string, content: string) => Promise<string>;
 
   // Export operations
   exportData: (options: any) => Promise<string>;

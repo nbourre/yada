@@ -26,7 +26,6 @@ import {
   ListItemText,
   ListItemIcon,
   Divider,
-  Paper,
 } from '@mui/material';
 import { GetApp, Description, PictureAsPdf, TableChart } from '@mui/icons-material';
 
@@ -81,29 +80,45 @@ const ExportPanel: React.FC<ExportPanelProps> = ({ projectId }) => {
     setError(null);
 
     try {
-      const response = await fetch(`/api/projects/${projectId}/export`, {
+      // Map UI options to API payload
+      const entityTypes: string[] = [];
+      if (options.includeFields) entityTypes.push('field');
+      if (options.includeScripts) entityTypes.push('script');
+      if (options.includeLayouts) entityTypes.push('layout');
+      if (options.includeRelationships) entityTypes.push('relationship');
+
+      const response = await fetch(`/api/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options),
+        body: JSON.stringify({
+          projectId,
+          format: options.format,
+          options: {
+            filterOptions: {
+              entityTypes: entityTypes.length > 0 ? entityTypes : undefined,
+            },
+          },
+        }),
       });
 
       if (!response.ok) throw new Error('Export failed');
 
       const result = await response.json();
 
-      // Add new job to the list
+      // Complete job immediately using server response
+      const downloadUrl: string | undefined = result?.export?.downloadUrl;
       const newJob: ExportJob = {
-        id: result.jobId,
+        id: `${Date.now()}`,
         format: options.format,
-        status: 'running',
-        progress: 0,
+        status: downloadUrl ? 'completed' : 'failed',
+        progress: downloadUrl ? 100 : 0,
         createdAt: new Date(),
+        completedAt: downloadUrl ? new Date() : undefined,
+        downloadUrl,
+        error: downloadUrl ? undefined : 'No download available',
       };
 
       setJobs(prev => [newJob, ...prev]);
-
-      // Poll for job status
-      pollJobStatus(result.jobId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed');
     } finally {
@@ -111,23 +126,7 @@ const ExportPanel: React.FC<ExportPanelProps> = ({ projectId }) => {
     }
   };
 
-  const pollJobStatus = async (jobId: string) => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/projects/${projectId}/export/${jobId}/status`);
-        const status = await response.json();
-
-        setJobs(prev => prev.map(job => (job.id === jobId ? { ...job, ...status } : job)));
-
-        if (status.status === 'completed' || status.status === 'failed') {
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error('Failed to poll job status:', err);
-        clearInterval(interval);
-      }
-    }, 1000);
-  };
+  // Legacy polling removed: /api/export responds synchronously in current backend
 
   if (!projectId) {
     return (

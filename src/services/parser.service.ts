@@ -1,9 +1,9 @@
 /**
  * XML Parser Service for FileMaker Database Design Report (DDR)
- * Uses saxes for streaming XML parsing
+ * Uses fast-xml-parser for XML parsing
  */
 
-import { SaxesParser } from 'saxes';
+import { XMLParser } from 'fast-xml-parser';
 import { promises as fs } from 'fs';
 import {
   Project,
@@ -42,6 +42,13 @@ export class XMLParserService {
   private currentScript: Partial<Script> | null = null;
   private currentRelationship: Partial<Relationship> | null = null;
 
+  // Collections for parsed entities
+  private tables: Table[] = [];
+  private fields: Field[] = [];
+  private layouts: Layout[] = [];
+  private scripts: Script[] = [];
+  private relationships: Relationship[] = [];
+
   // Statistics counters
   private stats: ProjectStatistics = {
     tableCount: 0,
@@ -53,13 +60,15 @@ export class XMLParserService {
   };
 
   async parseFile(filePath: string): Promise<ParseResult> {
+    console.log('Parser: Starting parseFile...');
     this.startTime = Date.now();
     this.errors = [];
     this.resetState();
 
     try {
-      // Read file content
-      const xmlContent = await fs.readFile(filePath, 'utf-8');
+      // Read file content with BOM handling
+      console.log('Parser: Reading file with BOM handling...');
+      const xmlContent = await this.readFileWithBOMHandling(filePath);
 
       // Initialize project with basic info
       const fileName = filePath.split(/[/\\]/).pop() || 'unknown.xml';
@@ -85,7 +94,13 @@ export class XMLParserService {
       };
 
       // Parse XML content
+      console.log('Parser: Starting XML parsing...');
       await this.parseXMLContent(xmlContent);
+      console.log('Parser: XML parsing completed, saving to database...');
+
+      // Save parsed data to database
+      await this.saveParsedDataToDatabase();
+      console.log('Parser: Database save completed');
 
       // Finalize project
       const parseTime = Date.now() - this.startTime;
@@ -126,53 +141,210 @@ export class XMLParserService {
   }
 
   private async parseXMLContent(content: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const parser = new SaxesParser({
-        xmlns: false,
-        position: false,
+    console.log(`Parser: parseXMLContent called with ${content.length} chars`);
+    
+    try {
+      // Parse XML using fast-xml-parser
+      const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+        textNodeName: '#text',
+        parseAttributeValue: true,
+        trimValues: true,
       });
-
-      parser.on('opentag', node => {
-        this.elementStack.push(node.name);
-        this.currentElement = node.name;
-        this.currentData = '';
-
-        this.handleOpenTag(node.name, node.attributes);
-      });
-
-      parser.on('text', data => {
-        this.currentData += data.trim();
-      });
-
-      parser.on('closetag', tagName => {
-        this.handleCloseTag(typeof tagName === 'string' ? tagName : tagName.name, this.currentData);
-
-        this.elementStack.pop();
-        this.currentElement = this.elementStack[this.elementStack.length - 1] || '';
-        this.currentData = '';
-      });
-
-      parser.on('error', error => {
-        this.errors.push(`XML Parse Error: ${error.message}`);
-        reject(error);
-      });
-
-      parser.on('end', () => {
-        resolve();
-      });
-
-      try {
-        parser.write(content);
-        parser.close();
-      } catch (error) {
-        reject(error);
+      
+      console.log('Parser: Parsing XML with fast-xml-parser...');
+      const parsed = parser.parse(content);
+      console.log('Parser: XML parsed successfully');
+      
+      // Find the root element (FMPReport or FMPDDR)
+      const root = parsed.FMPReport || parsed.FMPDDR || parsed.fmpreport || parsed.fmpddr;
+      
+      if (!root) {
+        throw new Error('Could not find FMPReport or FMPDDR root element in XML');
       }
+      
+      console.log('Parser: Found root element, traversing...');
+      
+      // Extract metadata from root attributes
+      if (root['@_version']) {
+        this.currentProject.metadata = {
+          ...this.currentProject.metadata!,
+          fileMakerVersion: root['@_version'],
+          platform: root['@_platform'] || 'Unknown',
+        };
+      }
+      
+      // Process File element
+      if (root.File) {
+        this.processFileElement(root.File);
+      }
+      
+      console.log('Parser: XML parsing completed');
+    } catch (error) {
+      console.error('Parser: XML parser error:', error);
+      this.errors.push(`XML Parse Error: ${error}`);
+      throw error;
+    }
+  }
+  
+  private processFileElement(fileElement: any): void {
+    // Extract file metadata
+    if (fileElement['@_name']) {
+      this.currentProject.name = fileElement['@_name'];
+    }
+    
+    if (fileElement['@_path']) {
+      this.currentProject.filePath = fileElement['@_path'];
+    }
+    
+    // Process BaseTableCatalog
+    if (fileElement.BaseTableCatalog) {
+      this.processBaseTableCatalog(fileElement.BaseTableCatalog);
+    }
+    
+    // Process LayoutCatalog
+    if (fileElement.LayoutCatalog) {
+      this.processLayoutCatalog(fileElement.LayoutCatalog);
+    }
+    
+    // Process ScriptCatalog
+    if (fileElement.ScriptCatalog) {
+      this.processScriptCatalog(fileElement.ScriptCatalog);
+    }
+    
+    // Process RelationshipGraph
+    if (fileElement.RelationshipGraph) {
+      this.processRelationshipGraph(fileElement.RelationshipGraph);
+    }
+  }
+  
+  private processBaseTableCatalog(catalog: any): void {
+    const tables = catalog.BaseTable;
+    if (!tables) return;
+    
+    const tableArray = Array.isArray(tables) ? tables : [tables];
+    
+    tableArray.forEach((tableData: any) => {
+      const table: Table = {
+        id: this.generateId(),
+        projectId: this.currentProject.id!,
+        name: tableData['@_name'] || 'Unnamed Table',
+        occurrence: tableData['@_occurrence'] || tableData['@_name'] || 'Main',
+        sourceTable: tableData['@_sourceTable'],
+        recordCount: tableData['@_recordCount'] ? parseInt(tableData['@_recordCount']) : undefined,
+        fields: [],
+        relationships: [],
+      };
+      
+      // Process fields
+      if (tableData.FieldCatalog?.Field) {
+        const fields = Array.isArray(tableData.FieldCatalog.Field) 
+          ? tableData.FieldCatalog.Field 
+          : [tableData.FieldCatalog.Field];
+        
+        fields.forEach((fieldData: any) => {
+          const field: Field = {
+            id: this.generateId(),
+            projectId: this.currentProject.id!,
+            tableId: table.id,
+            tableName: table.name,
+            name: fieldData['@_name'] || 'Unnamed Field',
+            type: this.mapFieldType(fieldData['@_dataType'] || fieldData['@_type'] || 'text'),
+            options: {},
+            calculation: fieldData.Calculation?.['#text'] || fieldData.Calculation,
+            comment: fieldData.Comment?.['#text'] || fieldData.Comment,
+          };
+          
+          table.fields.push(field);
+          this.fields.push(field);
+          this.stats.fieldCount++;
+        });
+      }
+      
+      this.tables.push(table);
+      this.stats.tableCount++;
     });
+    
+    console.log(`Parser: Processed ${tableArray.length} tables with ${this.fields.length} fields`);
+  }
+  
+  private processLayoutCatalog(catalog: any): void {
+    const layouts = catalog.Layout;
+    if (!layouts) return;
+    
+    const layoutArray = Array.isArray(layouts) ? layouts : [layouts];
+    
+    layoutArray.forEach((layoutData: any) => {
+      const layout: Layout = {
+        id: this.generateId(),
+        projectId: this.currentProject.id!,
+        name: layoutData['@_name'] || 'Unnamed Layout',
+        type: 'form' as LayoutType,
+        fields: [],
+        parts: [],
+        scripts: [],
+      };
+      
+      this.layouts.push(layout);
+      this.stats.layoutCount++;
+    });
+    
+    console.log(`Parser: Processed ${layoutArray.length} layouts`);
+  }
+  
+  private processScriptCatalog(catalog: any): void {
+    const scripts = catalog.Script;
+    if (!scripts) return;
+    
+    const scriptArray = Array.isArray(scripts) ? scripts : [scripts];
+    
+    scriptArray.forEach((scriptData: any) => {
+      const script: Script = {
+        id: this.generateId(),
+        projectId: this.currentProject.id!,
+        name: scriptData['@_name'] || 'Unnamed Script',
+        steps: [],
+        comment: scriptData['@_comment'] || scriptData.Comment?.['#text'],
+      };
+      
+      this.scripts.push(script);
+      this.stats.scriptCount++;
+    });
+    
+    console.log(`Parser: Processed ${scriptArray.length} scripts`);
+  }
+  
+  private processRelationshipGraph(graph: any): void {
+    const relationships = graph.Relationship;
+    if (!relationships) return;
+    
+    const relationshipArray = Array.isArray(relationships) ? relationships : [relationships];
+    
+    relationshipArray.forEach((relData: any) => {
+      const relationship: Relationship = {
+        id: this.generateId(),
+        projectId: this.currentProject.id!,
+        name: relData['@_name'] || 'Unnamed Relationship',
+        leftTable: relData['@_leftTable'] || relData['@_table1'],
+        leftField: relData['@_leftField'] || relData['@_field1'] || '',
+        rightTable: relData['@_rightTable'] || relData['@_table2'],
+        rightField: relData['@_rightField'] || relData['@_field2'] || '',
+        type: 'one-to-many' as RelationshipType,
+        options: {},
+      };
+      
+      this.relationships.push(relationship);
+      this.stats.relationshipCount++;
+    });
+    
+    console.log(`Parser: Processed ${relationshipArray.length} relationships`);
   }
 
   private handleOpenTag(tagName: string, attributes: Record<string, string>): void {
     switch (tagName.toLowerCase()) {
       case 'fmpddr':
+      case 'fmpreport':
         // Root element - extract version info
         this.currentProject.metadata = {
           ...this.currentProject.metadata!,
@@ -182,6 +354,7 @@ export class XMLParserService {
         break;
 
       case 'table':
+      case 'basetable':
         this.currentTable = {
           id: this.generateId(),
           projectId: this.currentProject.id!,
@@ -282,29 +455,24 @@ export class XMLParserService {
         break;
 
       case 'table':
+      case 'basetable':
         if (this.currentTable) {
-          try {
-            await databaseService.createTable(this.currentTable as Table);
-            this.stats.tableCount++;
-          } catch (error) {
-            this.errors.push(`Failed to save table ${this.currentTable.name}: ${error}`);
-          }
+          // Add to tables collection instead of saving to database
+          this.tables.push(this.currentTable as Table);
+          this.stats.tableCount++;
           this.currentTable = null;
         }
         break;
 
       case 'field':
         if (this.currentField) {
-          try {
-            await databaseService.createField(this.currentField as Field);
-            this.stats.fieldCount++;
+          // Add to fields collection instead of saving to database
+          this.fields.push(this.currentField as Field);
+          this.stats.fieldCount++;
 
-            if (this.currentTable) {
-              this.currentTable.fields = this.currentTable.fields || [];
-              this.currentTable.fields.push(this.currentField as Field);
-            }
-          } catch (error) {
-            this.errors.push(`Failed to save field ${this.currentField.name}: ${error}`);
+          if (this.currentTable) {
+            this.currentTable.fields = this.currentTable.fields || [];
+            this.currentTable.fields.push(this.currentField as Field);
           }
           this.currentField = null;
         }
@@ -400,6 +568,14 @@ export class XMLParserService {
     this.elementStack = [];
     this.currentElement = '';
     this.currentData = '';
+    
+    // Clear collections
+    this.tables = [];
+    this.fields = [];
+    this.layouts = [];
+    this.scripts = [];
+    this.relationships = [];
+    
     this.stats = {
       tableCount: 0,
       fieldCount: 0,
@@ -414,30 +590,103 @@ export class XMLParserService {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
   }
 
+  private async saveParsedDataToDatabase(): Promise<void> {
+    try {
+      // Save tables
+      for (const table of this.tables) {
+        await databaseService.createTable(table);
+      }
+
+      // Save fields
+      for (const field of this.fields) {
+        await databaseService.createField(field);
+      }
+
+      // TODO: Implement createLayout, createScript, createRelationship in database service
+      // For now, we'll just collect the data
+      console.log(`Parsed ${this.layouts.length} layouts`);
+      console.log(`Parsed ${this.scripts.length} scripts`);
+      console.log(`Parsed ${this.relationships.length} relationships`);
+    } catch (error) {
+      this.errors.push(`Failed to save parsed data to database: ${error}`);
+    }
+  }
+
+  private async readFileWithBOMHandling(filePath: string): Promise<string> {
+    try {
+      // First, read as buffer to detect BOM
+      const buffer = await fs.readFile(filePath);
+      
+      // Check for UTF-16 BOM (ff fe or fe ff)
+      if (buffer.length >= 2) {
+        const bom = buffer.subarray(0, 2);
+        
+        // UTF-16 LE BOM (ff fe)
+        if (bom[0] === 0xff && bom[1] === 0xfe) {
+          // Read as UTF-16 LE and clean replacement characters
+          let content = buffer.toString('utf16le');
+          // Remove BOM character if present
+          if (content.charCodeAt(0) === 0xfeff) {
+            content = content.substring(1);
+          }
+          // Clean replacement characters and null bytes
+          content = content.replace(/\uFFFD/g, '').replace(/\0/g, '');
+          return content;
+        }
+        
+        // UTF-16 BE BOM (fe ff)
+        if (bom[0] === 0xfe && bom[1] === 0xff) {
+          let content = buffer.toString('utf16le'); // Node.js uses 'utf16le' for both
+          if (content.charCodeAt(0) === 0xfeff) {
+            content = content.substring(1);
+          }
+          content = content.replace(/\uFFFD/g, '').replace(/\0/g, '');
+          return content;
+        }
+        
+        // UTF-8 BOM (ef bb bf)
+        if (buffer.length >= 3 && bom[0] === 0xef && buffer[2] === 0xbf && buffer[3] === 0xbf) {
+          return buffer.toString('utf-8').replace(/^\uFEFF/, '');
+        }
+      }
+      
+      // No BOM detected, assume UTF-8
+      return buffer.toString('utf-8');
+    } catch (error) {
+      throw new Error(`Failed to read file with BOM handling: ${error}`);
+    }
+  }
+
   async validateXMLFile(filePath: string): Promise<{ isValid: boolean; errors: string[] }> {
     try {
-      const content = await fs.readFile(filePath, 'utf-8');
+      const content = await this.readFileWithBOMHandling(filePath);
 
       // Basic XML validation
       if (!content.includes('<?xml')) {
         return { isValid: false, errors: ['Not a valid XML file'] };
       }
 
-      if (!content.includes('<fmpddr') && !content.includes('<FMPDDRDocument')) {
+      if (
+        !content.includes('<fmpddr') &&
+        !content.includes('<FMPDDRDocument') &&
+        !content.includes('<FMPReport')
+      ) {
         return { isValid: false, errors: ['Not a FileMaker DDR XML file'] };
       }
 
-      // Try to parse a small portion to check validity
-      const parser = new SaxesParser();
+      // Try to parse with fast-xml-parser to check validity
+      const parser = new XMLParser({
+        ignoreAttributes: false,
+      });
       const errors: string[] = [];
 
-      parser.on('error', error => {
-        errors.push(error.message);
-      });
-
-      // Parse first 1000 characters to check basic structure
-      const testContent = content.substring(0, 1000);
-      parser.write(testContent);
+      try {
+        // Parse first 5000 characters to check basic structure
+        const testContent = content.substring(0, 5000);
+        parser.parse(testContent);
+      } catch (error: unknown) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
 
       return {
         isValid: errors.length === 0,

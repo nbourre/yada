@@ -118,12 +118,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
         const reader = new FileReader();
         reader.onload = async e => {
           try {
-            // Content is available for future use
-            const _content = e.target?.result as string;
+            const content = e.target?.result as string;
             
-            // For now, we'll create a temporary file path
-            // In a real implementation, you'd save to a temp directory first
-            const tempPath = `temp_${Date.now()}_${uploadedFile.file.name}`;
+            // Write content to a temp file via Electron API
+            const tempPath = await window.electronAPI.writeTempFile(
+              `temp_${Date.now()}_${uploadedFile.file.name}`,
+              content
+            );
+            
+            console.log('Temp file written:', tempPath);
             
             // Call the electron API to parse the file
             await window.electronAPI.parseFile(tempPath);

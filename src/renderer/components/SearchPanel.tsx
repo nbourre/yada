@@ -93,11 +93,14 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
     }
   }, []);
 
-  const saveSearchToHistory = (searchQuery: string) => {
-    const updated = [searchQuery, ...searchHistory.filter(h => h !== searchQuery)].slice(0, 10);
-    setSearchHistory(updated);
-    localStorage.setItem('yada-search-history', JSON.stringify(updated));
-  };
+  const saveSearchToHistory = useCallback(
+    (searchQuery: string) => {
+      const updated = [searchQuery, ...searchHistory.filter(h => h !== searchQuery)].slice(0, 10);
+      setSearchHistory(updated);
+      localStorage.setItem('yada-search-history', JSON.stringify(updated));
+    },
+    [searchHistory]
+  );
 
   const performSearch = useCallback(async () => {
     if (!projectId || !query.trim()) {
@@ -109,23 +112,60 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
     setError(null);
 
     try {
-      const searchParams = new URLSearchParams({
-        q: query,
-        types: filters.types.join(','),
-        searchIn: filters.searchIn.join(','),
-        caseSensitive: filters.caseSensitive.toString(),
-        wholeWords: filters.wholeWords.toString(),
-        regex: filters.regex.toString(),
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          query,
+          entityTypes: filters.types && filters.types.length > 0 ? filters.types : undefined,
+          // Optional parameters (not currently used by backend but sent for future support)
+          searchIn: filters.searchIn,
+          caseSensitive: filters.caseSensitive,
+          wholeWords: filters.wholeWords,
+          regex: filters.regex,
+          maxResults: 200,
+        }),
       });
 
-      const response = await fetch(`/api/projects/${projectId}/search?${searchParams}`);
-
       if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`);
+        // Attempt to parse error body
+        let errorMessage = `Search failed: ${response.statusText}`;
+        try {
+          const errBody = await response.json();
+          if (errBody?.error?.message) {
+            errorMessage = errBody.error.message;
+          }
+        } catch (e) {
+          // ignore parse error of error body
+        }
+        throw new Error(errorMessage);
       }
 
-      const searchResults = await response.json();
-      setResults(searchResults);
+      const payload = await response.json();
+      const backendResults = Array.isArray(payload?.results) ? payload.results : [];
+      type BackendResult = {
+        entityId?: string;
+        entityType?: SearchResult['type'];
+        entityName?: string;
+        id?: string;
+        type?: SearchResult['type'];
+        name?: string;
+        context?: string;
+        description?: string;
+        matches?: string[];
+      };
+
+      const mapped: SearchResult[] = backendResults.map((r: BackendResult) => ({
+        id: r.entityId || r.id || `${r.entityType || 'unknown'}-${r.entityName || 'result'}`,
+        type: (r.entityType || r.type || 'table') as SearchResult['type'],
+        name: r.entityName || r.name || '(unnamed)',
+        context: r.context || '',
+        description: r.description || undefined,
+        matches: Array.isArray(r.matches) ? r.matches : [],
+      }));
+
+      setResults(mapped);
       saveSearchToHistory(query);
     } catch (err) {
       console.error('Search error:', err);
@@ -133,7 +173,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
     } finally {
       setLoading(false);
     }
-  }, [projectId, query, filters]);
+  }, [projectId, query, filters, saveSearchToHistory]);
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter') {
@@ -161,12 +201,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
     if (results.length === 0) return;
 
     try {
-      const response = await fetch(`/api/projects/${projectId}/search/export`, {
+      const response = await fetch(`/api/search/export`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          projectId,
           query,
           results,
           filters,
@@ -462,7 +503,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
       {!loading && results.length === 0 && query && (
         <Box sx={{ textAlign: 'center', py: 4 }}>
           <Typography variant="body1" color="textSecondary">
-            No results found for "{query}"
+            No results found for “{query}”
           </Typography>
         </Box>
       )}
