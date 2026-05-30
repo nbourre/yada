@@ -149,9 +149,14 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                   <Typography variant="body2" color="textSecondary">
                     Parsed: {formatDate(project.parsedAt)}
                   </Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" color={project.status === 'error' ? 'error' : 'textSecondary'}>
                     Status: {project.status}
                   </Typography>
+                  {project.status === 'error' && (project as any).errors?.length > 0 && (
+                    <Typography variant="body2" color="error" sx={{ mt: 1, fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+                      {(project as any).errors.join('\n')}
+                    </Typography>
+                  )}
                 </Grid>
               </Grid>
             </CardContent>

@@ -343,11 +343,13 @@ function setupIPC(): void {
   });
 
   // Handle writing temp file
+  // content is base64-encoded binary to preserve original file encoding (e.g. UTF-16 LE)
   ipcMain.handle('write-temp-file', async (event, fileName: string, content: string) => {
     try {
       const tempPath = join(tmpdir(), fileName);
-      writeFileSync(tempPath, content);
-      console.log('Main: Wrote temp file:', tempPath);
+      const buffer = Buffer.from(content, 'base64');
+      writeFileSync(tempPath, buffer);
+      console.log('Main: Wrote temp file:', tempPath, `(${buffer.length} bytes)`);
       return tempPath;
     } catch (error) {
       console.error('Main: Error writing temp file:', error);

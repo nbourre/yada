@@ -237,11 +237,20 @@ export class XMLParserService {
       const parsed = parser.parse(content);
       console.log('Parser: XML parsed successfully');
 
-      // Find the root element (FMPReport or FMPDDR)
-      const root = parsed.FMPReport || parsed.FMPDDR || parsed.fmpreport || parsed.fmpddr;
+      // Find the root element (varies by FileMaker version)
+      const root =
+        parsed.FMSaveAsXML ||   // FileMaker Pro 19+
+        parsed.FMPReport ||     // FileMaker Pro 12–18
+        parsed.FMPDDR ||
+        parsed.FMPDDRDocument ||
+        parsed.fmpreport ||
+        parsed.fmpddr ||
+        parsed.fmpddrDocument;
 
       if (!root) {
-        throw new Error('Could not find FMPReport or FMPDDR root element in XML');
+        throw new Error(
+          `Could not find FileMaker DDR root element in XML. Found keys: ${Object.keys(parsed).join(', ')}`
+        );
       }
 
       console.log('Parser: Found root element, traversing...');
@@ -759,15 +768,11 @@ export class XMLParserService {
       // First, read as buffer to detect BOM
       const buffer = await fs.readFile(filePath);
 
-      // Check for UTF-16 BOM (ff fe or fe ff)
       if (buffer.length >= 2) {
-        const bom = buffer.subarray(0, 2);
-
-        // UTF-16 LE BOM (ff fe)
-        if (bom[0] === 0xff && bom[1] === 0xfe) {
-          // Read as UTF-16 LE and clean replacement characters
+        // UTF-16 LE BOM (FF FE)
+        if (buffer[0] === 0xff && buffer[1] === 0xfe) {
           let content = buffer.toString('utf16le');
-          // Remove BOM character if present
+          // Remove BOM character (U+FEFF) if present
           if (content.charCodeAt(0) === 0xfeff) {
             content = content.substring(1);
           }
@@ -776,9 +781,14 @@ export class XMLParserService {
           return content;
         }
 
-        // UTF-16 BE BOM (fe ff)
-        if (bom[0] === 0xfe && bom[1] === 0xff) {
-          let content = buffer.toString('utf16le'); // Node.js uses 'utf16le' for both
+        // UTF-16 BE BOM (FE FF) \u2014 swap bytes to convert to LE, then decode
+        if (buffer[0] === 0xfe && buffer[1] === 0xff) {
+          const swapped = Buffer.alloc(buffer.length);
+          for (let i = 0; i + 1 < buffer.length; i += 2) {
+            swapped[i] = buffer[i + 1];
+            swapped[i + 1] = buffer[i];
+          }
+          let content = swapped.toString('utf16le');
           if (content.charCodeAt(0) === 0xfeff) {
             content = content.substring(1);
           }
@@ -786,8 +796,8 @@ export class XMLParserService {
           return content;
         }
 
-        // UTF-8 BOM (ef bb bf)
-        if (buffer.length >= 3 && bom[0] === 0xef && buffer[2] === 0xbf && buffer[3] === 0xbf) {
+        // UTF-8 BOM (EF BB BF)
+        if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
           return buffer.toString('utf-8').replace(/^\uFEFF/, '');
         }
       }

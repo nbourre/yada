@@ -114,22 +114,30 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
     try {
       // If electron API is available, use it to save and parse the file
       if (window.electronAPI) {
-        // Read file content
+        // Read file as binary (ArrayBuffer) to preserve encoding (UTF-16 LE BOM, etc.)
         const reader = new FileReader();
         reader.onload = async e => {
           try {
-            const content = e.target?.result as string;
+            const arrayBuffer = e.target?.result as ArrayBuffer;
+            // Convert to base64 to safely transfer binary data through IPC
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
 
-            // Write content to a temp file via Electron API
+            // Write binary content to a temp file via Electron API
             const tempPath = await window.electronAPI.writeTempFile(
               `temp_${Date.now()}_${uploadedFile.file.name}`,
-              content
+              base64
             );
 
             console.log('Temp file written:', tempPath);
 
             // Call the electron API to parse the file
-            await window.electronAPI.parseFile(tempPath);
+            const result = await window.electronAPI.parseFile(tempPath);
+            console.log('Parse result:', result);
 
             // Remove uploaded file from the list after successful parsing starts
             setSelectedFiles(selectedFiles.filter(f => f.id !== uploadedFile.id));
@@ -143,7 +151,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
           setError(`Failed to read file: ${uploadedFile.file.name}`);
         };
 
-        reader.readAsText(uploadedFile.file);
+        reader.readAsArrayBuffer(uploadedFile.file);
       } else {
         // Fallback to direct file upload
         await onFileUpload(uploadedFile.file);
