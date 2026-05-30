@@ -119,18 +119,18 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
         reader.onload = async e => {
           try {
             const content = e.target?.result as string;
-            
+
             // Write content to a temp file via Electron API
             const tempPath = await window.electronAPI.writeTempFile(
               `temp_${Date.now()}_${uploadedFile.file.name}`,
               content
             );
-            
+
             console.log('Temp file written:', tempPath);
-            
+
             // Call the electron API to parse the file
             await window.electronAPI.parseFile(tempPath);
-            
+
             // Remove uploaded file from the list after successful parsing starts
             setSelectedFiles(selectedFiles.filter(f => f.id !== uploadedFile.id));
           } catch (error) {
@@ -138,11 +138,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
             setError(`Failed to parse ${uploadedFile.file.name}: ${error}`);
           }
         };
-        
+
         reader.onerror = () => {
           setError(`Failed to read file: ${uploadedFile.file.name}`);
         };
-        
+
         reader.readAsText(uploadedFile.file);
       } else {
         // Fallback to direct file upload

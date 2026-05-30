@@ -27,6 +27,81 @@ export interface ParseResult {
   errors: string[];
 }
 
+// Minimal DDR XML type definitions used for parsing (subset of full schema)
+interface DDRField {
+  '@_name'?: string;
+  '@_dataType'?: string;
+  '@_type'?: string;
+  Calculation?: { '#text'?: string } | string;
+  Comment?: { '#text'?: string } | string;
+}
+
+interface DDRFieldCatalog {
+  Field: DDRField | DDRField[];
+}
+
+interface DDRBaseTable {
+  '@_name'?: string;
+  '@_occurrence'?: string;
+  '@_sourceTable'?: string;
+  '@_baseTable'?: string;
+  '@_recordCount'?: string;
+  FieldCatalog?: DDRFieldCatalog;
+}
+
+interface DDRBaseTableCatalog {
+  BaseTable: DDRBaseTable | DDRBaseTable[];
+}
+
+interface DDRLayout {
+  '@_name'?: string;
+  '@_type'?: string;
+}
+interface DDRLayoutCatalog {
+  Layout: DDRLayout | DDRLayout[];
+}
+
+interface DDRScript {
+  '@_name'?: string;
+  '@_comment'?: string;
+  Comment?: { '#text'?: string } | string;
+}
+interface DDRScriptCatalog {
+  Script: DDRScript | DDRScript[];
+}
+
+interface DDRJoinPredicate {
+  '@_type'?: string;
+  LeftField?: { Field?: { '@_name'?: string } };
+  RightField?: { Field?: { '@_name'?: string } };
+}
+
+interface DDRRelationship {
+  '@_id'?: string;
+  LeftTable?: { '@_name'?: string; '@_cascadeCreate'?: string; '@_cascadeDelete'?: string };
+  RightTable?: { '@_name'?: string };
+  JoinPredicateList?: { JoinPredicate: DDRJoinPredicate | DDRJoinPredicate[] };
+}
+
+interface DDRTableOccurrence {
+  '@_id'?: string;
+  '@_name'?: string;
+  '@_baseTable'?: string;
+}
+interface DDRRelationshipGraph {
+  TableList?: { Table: DDRTableOccurrence | DDRTableOccurrence[] };
+  RelationshipList?: { Relationship: DDRRelationship | DDRRelationship[] };
+}
+
+interface DDRFileElement {
+  '@_name'?: string;
+  '@_path'?: string;
+  BaseTableCatalog?: DDRBaseTableCatalog;
+  LayoutCatalog?: DDRLayoutCatalog;
+  ScriptCatalog?: DDRScriptCatalog;
+  RelationshipGraph?: DDRRelationshipGraph;
+}
+
 export class XMLParserService {
   private currentProject: Partial<Project> = {};
   private currentElement: string = '';
@@ -52,6 +127,7 @@ export class XMLParserService {
   // Statistics counters
   private stats: ProjectStatistics = {
     tableCount: 0,
+    occurrenceCount: 0,
     fieldCount: 0,
     layoutCount: 0,
     scriptCount: 0,
@@ -97,7 +173,6 @@ export class XMLParserService {
       console.log('Parser: Starting XML parsing...');
       await this.parseXMLContent(xmlContent);
       console.log('Parser: XML parsing completed, saving to database...');
-
 
       // Save parsed data to database
       await this.saveParsedDataToDatabase();
@@ -147,7 +222,7 @@ export class XMLParserService {
 
   private async parseXMLContent(content: string): Promise<void> {
     console.log(`Parser: parseXMLContent called with ${content.length} chars`);
-    
+
     try {
       // Parse XML using fast-xml-parser
       const parser = new XMLParser({
@@ -157,20 +232,20 @@ export class XMLParserService {
         parseAttributeValue: true,
         trimValues: true,
       });
-      
+
       console.log('Parser: Parsing XML with fast-xml-parser...');
       const parsed = parser.parse(content);
       console.log('Parser: XML parsed successfully');
-      
+
       // Find the root element (FMPReport or FMPDDR)
       const root = parsed.FMPReport || parsed.FMPDDR || parsed.fmpreport || parsed.fmpddr;
-      
+
       if (!root) {
         throw new Error('Could not find FMPReport or FMPDDR root element in XML');
       }
-      
+
       console.log('Parser: Found root element, traversing...');
-      
+
       // Extract metadata from root attributes
       if (root['@_version']) {
         this.currentProject.metadata = {
@@ -179,12 +254,12 @@ export class XMLParserService {
           platform: root['@_platform'] || 'Unknown',
         };
       }
-      
+
       // Process File element
       if (root.File) {
         this.processFileElement(root.File);
       }
-      
+
       console.log('Parser: XML parsing completed');
     } catch (error) {
       console.error('Parser: XML parser error:', error);
@@ -192,45 +267,45 @@ export class XMLParserService {
       throw error;
     }
   }
-  
-  private processFileElement(fileElement: any): void {
+
+  private processFileElement(fileElement: DDRFileElement): void {
     // Extract file metadata
     if (fileElement['@_name']) {
       this.currentProject.name = fileElement['@_name'];
     }
-    
+
     if (fileElement['@_path']) {
       this.currentProject.filePath = fileElement['@_path'];
     }
-    
+
     // Process BaseTableCatalog
     if (fileElement.BaseTableCatalog) {
       this.processBaseTableCatalog(fileElement.BaseTableCatalog);
     }
-    
+
     // Process LayoutCatalog
     if (fileElement.LayoutCatalog) {
       this.processLayoutCatalog(fileElement.LayoutCatalog);
     }
-    
+
     // Process ScriptCatalog
     if (fileElement.ScriptCatalog) {
       this.processScriptCatalog(fileElement.ScriptCatalog);
     }
-    
+
     // Process RelationshipGraph
     if (fileElement.RelationshipGraph) {
       this.processRelationshipGraph(fileElement.RelationshipGraph);
     }
   }
-  
-  private processBaseTableCatalog(catalog: any): void {
+
+  private processBaseTableCatalog(catalog: DDRBaseTableCatalog): void {
     const tables = catalog.BaseTable;
     if (!tables) return;
-    
+
     const tableArray = Array.isArray(tables) ? tables : [tables];
-    
-    tableArray.forEach((tableData: any) => {
+
+    tableArray.forEach((tableData: DDRBaseTable) => {
       const table: Table = {
         id: this.generateId(),
         projectId: this.currentProject.id!,
@@ -238,18 +313,19 @@ export class XMLParserService {
         occurrence: tableData['@_occurrence'] || tableData['@_name'] || 'Main',
         sourceTable: tableData['@_sourceTable'],
         baseTable: tableData['@_baseTable'] || '',
+        isOccurrence: false,
         recordCount: tableData['@_recordCount'] ? parseInt(tableData['@_recordCount']) : undefined,
         fields: [],
         relationships: [],
       };
-      
+
       // Process fields
       if (tableData.FieldCatalog?.Field) {
-        const fields = Array.isArray(tableData.FieldCatalog.Field) 
-          ? tableData.FieldCatalog.Field 
+        const fields = Array.isArray(tableData.FieldCatalog.Field)
+          ? tableData.FieldCatalog.Field
           : [tableData.FieldCatalog.Field];
-        
-        fields.forEach((fieldData: any) => {
+
+        fields.forEach((fieldData: DDRField) => {
           const field: Field = {
             id: this.generateId(),
             projectId: this.currentProject.id!,
@@ -258,30 +334,36 @@ export class XMLParserService {
             name: fieldData['@_name'] || 'Unnamed Field',
             type: this.mapFieldType(fieldData['@_dataType'] || fieldData['@_type'] || 'text'),
             options: {},
-            calculation: fieldData.Calculation?.['#text'] || fieldData.Calculation,
-            comment: fieldData.Comment?.['#text'] || fieldData.Comment,
+            calculation:
+              typeof fieldData.Calculation === 'object'
+                ? fieldData.Calculation['#text']
+                : fieldData.Calculation,
+            comment:
+              typeof fieldData.Comment === 'object'
+                ? fieldData.Comment['#text']
+                : fieldData.Comment,
           };
-          
+
           table.fields.push(field);
           this.fields.push(field);
           this.stats.fieldCount++;
         });
       }
-      
+
       this.tables.push(table);
       this.stats.tableCount++;
     });
-    
+
     console.log(`Parser: Processed ${tableArray.length} tables with ${this.fields.length} fields`);
   }
-  
-  private processLayoutCatalog(catalog: any): void {
+
+  private processLayoutCatalog(catalog: DDRLayoutCatalog): void {
     const layouts = catalog.Layout;
     if (!layouts) return;
-    
+
     const layoutArray = Array.isArray(layouts) ? layouts : [layouts];
-    
-    layoutArray.forEach((layoutData: any) => {
+
+    layoutArray.forEach((layoutData: DDRLayout) => {
       const layout: Layout = {
         id: this.generateId(),
         projectId: this.currentProject.id!,
@@ -291,43 +373,47 @@ export class XMLParserService {
         parts: [],
         scripts: [],
       };
-      
+
       this.layouts.push(layout);
       this.stats.layoutCount++;
     });
-    
+
     console.log(`Parser: Processed ${layoutArray.length} layouts`);
   }
-  
-  private processScriptCatalog(catalog: any): void {
+
+  private processScriptCatalog(catalog: DDRScriptCatalog): void {
     const scripts = catalog.Script;
     if (!scripts) return;
-    
+
     const scriptArray = Array.isArray(scripts) ? scripts : [scripts];
-    
-    scriptArray.forEach((scriptData: any) => {
+
+    scriptArray.forEach((scriptData: DDRScript) => {
       const script: Script = {
         id: this.generateId(),
         projectId: this.currentProject.id!,
         name: scriptData['@_name'] || 'Unnamed Script',
         steps: [],
-        comment: scriptData['@_comment'] || scriptData.Comment?.['#text'],
+        comment:
+          scriptData['@_comment'] ||
+          (typeof scriptData.Comment === 'object'
+            ? scriptData.Comment?.['#text']
+            : scriptData.Comment),
       };
-      
+
       this.scripts.push(script);
       this.stats.scriptCount++;
     });
-    
+
     console.log(`Parser: Processed ${scriptArray.length} scripts`);
   }
-  
-  private processRelationshipGraph(graph: any): void {
+
+  private processRelationshipGraph(graph: DDRRelationshipGraph): void {
     // First, process TableList to get table occurrences
     const tableList = graph.TableList?.Table;
     const tableOccurrences: Record<string, { id: string; name: string; baseTable: string }> = {};
     if (tableList) {
       const tableArray = Array.isArray(tableList) ? tableList : [tableList];
-      tableArray.forEach((tableData: any) => {
+      tableArray.forEach((tableData: DDRTableOccurrence) => {
         const name = tableData['@_name'] || '';
         const baseTable = tableData['@_baseTable'] || '';
         tableOccurrences[name] = {
@@ -335,10 +421,11 @@ export class XMLParserService {
           name,
           baseTable,
         };
-        
+
         // Create a Table object for this occurrence if not already in tables
         const existingTable = this.tables.find(t => t.name === name);
         if (!existingTable) {
+          const baseTableEntity = this.tables.find(t => !t.isOccurrence && t.name === baseTable);
           const table: Table = {
             id: tableData['@_id'] || this.generateId(),
             projectId: this.currentProject.id!,
@@ -346,12 +433,14 @@ export class XMLParserService {
             occurrence: name,
             baseTable,
             sourceTable: baseTable,
+            baseTableId: baseTableEntity?.id,
+            isOccurrence: true,
             recordCount: 0,
             fields: [],
             relationships: [],
           };
           this.tables.push(table);
-          this.stats.tableCount++;
+          this.stats.occurrenceCount++;
         }
       });
     }
@@ -361,14 +450,14 @@ export class XMLParserService {
     if (!relList) return;
     const relationshipArray = Array.isArray(relList) ? relList : [relList];
 
-    relationshipArray.forEach((relData: any) => {
+    relationshipArray.forEach((relData: DDRRelationship) => {
       // Extract left/right table names
       const leftTable = relData.LeftTable?.['@_name'] || '';
       const rightTable = relData.RightTable?.['@_name'] || '';
       // Extract join predicates
       const joinList = relData.JoinPredicateList?.JoinPredicate;
       const joinPredicates = Array.isArray(joinList) ? joinList : joinList ? [joinList] : [];
-      joinPredicates.forEach((jp: any) => {
+      joinPredicates.forEach((jp: DDRJoinPredicate) => {
         const leftField = jp.LeftField?.Field?.['@_name'] || '';
         const rightField = jp.RightField?.Field?.['@_name'] || '';
         const relationship: Relationship = {
@@ -620,16 +709,17 @@ export class XMLParserService {
     this.elementStack = [];
     this.currentElement = '';
     this.currentData = '';
-    
+
     // Clear collections
     this.tables = [];
     this.fields = [];
     this.layouts = [];
     this.scripts = [];
     this.relationships = [];
-    
+
     this.stats = {
       tableCount: 0,
+      occurrenceCount: 0,
       fieldCount: 0,
       layoutCount: 0,
       scriptCount: 0,
@@ -668,11 +758,11 @@ export class XMLParserService {
     try {
       // First, read as buffer to detect BOM
       const buffer = await fs.readFile(filePath);
-      
+
       // Check for UTF-16 BOM (ff fe or fe ff)
       if (buffer.length >= 2) {
         const bom = buffer.subarray(0, 2);
-        
+
         // UTF-16 LE BOM (ff fe)
         if (bom[0] === 0xff && bom[1] === 0xfe) {
           // Read as UTF-16 LE and clean replacement characters
@@ -685,7 +775,7 @@ export class XMLParserService {
           content = content.replace(/\uFFFD/g, '').replace(/\0/g, '');
           return content;
         }
-        
+
         // UTF-16 BE BOM (fe ff)
         if (bom[0] === 0xfe && bom[1] === 0xff) {
           let content = buffer.toString('utf16le'); // Node.js uses 'utf16le' for both
@@ -695,13 +785,13 @@ export class XMLParserService {
           content = content.replace(/\uFFFD/g, '').replace(/\0/g, '');
           return content;
         }
-        
+
         // UTF-8 BOM (ef bb bf)
         if (buffer.length >= 3 && bom[0] === 0xef && buffer[2] === 0xbf && buffer[3] === 0xbf) {
           return buffer.toString('utf-8').replace(/^\uFEFF/, '');
         }
       }
-      
+
       // No BOM detected, assume UTF-8
       return buffer.toString('utf-8');
     } catch (error) {

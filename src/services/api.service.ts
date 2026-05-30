@@ -8,20 +8,11 @@ import cors from 'cors';
 import multer from 'multer';
 import { promises as fs } from 'fs';
 import path from 'path';
-import {
-  Project,
-  SearchQuery,
-  SearchResult,
-  GraphData,
-
-  ApiResponse,
-  PaginatedResponse,
-} from '../models';
+import { Project, Table, Field, ProjectStatistics, ProjectMetadata, ApiResponse } from '../models';
 import { databaseService } from './database.service';
 import { xmlParserService } from './parser.service';
 import { searchService } from './search.service';
-import { graphService } from './graph.service';
-
+import { performanceMetricsService } from './performance.service';
 
 export class ApiService {
   private app: express.Application;
@@ -38,8 +29,6 @@ export class ApiService {
     this.app.use(cors());
     this.app.use(express.json({ limit: '50mb' }));
     this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-    
-    // Serve static files from the renderer build directory in production
     const rendererPath = path.join(__dirname, '../../renderer');
     this.app.use(express.static(rendererPath));
   }
@@ -49,9 +38,7 @@ export class ApiService {
     const storage = multer.diskStorage({
       destination: (req, file, cb) => {
         const uploadDir = path.join(process.cwd(), 'uploads');
-        fs.mkdir(uploadDir, { recursive: true }).then(() => {
-          cb(null, uploadDir);
-        });
+        fs.mkdir(uploadDir, { recursive: true }).then(() => cb(null, uploadDir));
       },
       filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
@@ -68,9 +55,7 @@ export class ApiService {
           cb(new Error('Only XML files are allowed'));
         }
       },
-      limits: {
-        fileSize: 100 * 1024 * 1024, // 100MB max
-      },
+      limits: { fileSize: 100 * 1024 * 1024 },
     });
   }
 
@@ -114,12 +99,17 @@ export class ApiService {
 
         // Validation
         if (!projectName) {
-          return this.sendError(res, 'Missing required field: projectName', 400, 'VALIDATION_ERROR');
+          return this.sendError(
+            res,
+            'Missing required field: projectName',
+            400,
+            'VALIDATION_ERROR'
+          );
         }
         if (!files || !Array.isArray(files) || files.length === 0) {
           return this.sendError(res, 'Missing required field: files', 400, 'INVALID_INPUT');
         }
-        
+
         // Check for too many files (max 10)
         if (files.length > 10) {
           return this.sendError(res, 'Too many files provided', 400, 'INVALID_INPUT');
@@ -185,7 +175,7 @@ export class ApiService {
     // Search Entities (T007)
     this.app.post('/api/search', async (req, res) => {
       try {
-        const { projectId, query, entityTypes, maxResults } = req.body;
+        const { projectId, query, entityTypes, maxResults, token, cancel } = req.body;
 
         if (!projectId) {
           return this.sendError(res, 'Missing required field: projectId', 400, 'VALIDATION_ERROR');
@@ -196,10 +186,24 @@ export class ApiService {
 
         // Validate entityTypes if provided
         if (entityTypes) {
-          const validEntityTypes = ['table', 'field', 'layout', 'script', 'relationship', 'calculation'];
-          const invalidTypes = entityTypes.filter((type: string) => !validEntityTypes.includes(type));
+          const validEntityTypes = [
+            'table',
+            'field',
+            'layout',
+            'script',
+            'relationship',
+            'calculation',
+          ];
+          const invalidTypes = entityTypes.filter(
+            (type: string) => !validEntityTypes.includes(type)
+          );
           if (invalidTypes.length > 0) {
-            return this.sendError(res, `Invalid entityTypes: ${invalidTypes.join(', ')}. Must be one of: ${validEntityTypes.join(', ')}`, 400, 'VALIDATION_ERROR');
+            return this.sendError(
+              res,
+              `Invalid entityTypes: ${invalidTypes.join(', ')}. Must be one of: ${validEntityTypes.join(', ')}`,
+              400,
+              'VALIDATION_ERROR'
+            );
           }
         }
 
@@ -209,23 +213,49 @@ export class ApiService {
           return this.sendError(res, `Project not found: ${projectId}`, 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Simulate search functionality with mock data
-        const allResults = await databaseService.searchEntities(
-          projectId,
-          query,
-          entityTypes || ['table', 'field', 'layout', 'script']
-        );
-        
-        const mockResults = maxResults ? allResults.slice(0, maxResults) : allResults;
+        // Debounced search using searchService with optional cancellation token
+        if (cancel && token) {
+          const cancelled = searchService.cancel(token);
+          return res.json({ success: cancelled, cancelled, token });
+        }
+
+        const searchToken = token || searchService.generateToken();
+        const searchQueryEntityTypes = entityTypes || ['table', 'field', 'layout', 'script'];
+        let results;
+        const searchStart = performance.now();
+        try {
+          results = await searchService.searchWithDebounce(
+            {
+              projectId,
+              query,
+              entityTypes: searchQueryEntityTypes,
+            },
+            searchToken
+          );
+        } catch (e) {
+          // Provide structured cancellation or error response
+          const msg = e instanceof Error ? e.message : String(e);
+          return res.status(409).json({
+            success: false,
+            error: { code: 'SEARCH_CANCELLED', message: msg },
+            token: searchToken,
+          });
+        }
+        const searchDuration = performance.now() - searchStart;
+        performanceMetricsService.recordSearch(projectId, searchDuration);
+
+        const limitedResults = maxResults ? results.slice(0, maxResults) : results;
 
         const response = {
           success: true,
-          results: mockResults,
-          totalCount: mockResults.length,
-          searchTime: Math.floor(Math.random() * 50) + 5,
+          results: limitedResults,
+          totalCount: limitedResults.length,
+          debounceMs: 300,
+          searchTimeMs: searchDuration,
+          token: searchToken,
           query: {
             original: query,
-            entityTypes: entityTypes || ['table', 'field', 'layout', 'script'],
+            entityTypes: searchQueryEntityTypes,
             projectId,
           },
         };
@@ -289,7 +319,12 @@ export class ApiService {
         if (options.centerEntity && options.centerEntity.type) {
           const validCenterEntityTypes = ['table', 'field', 'layout', 'script', 'relationship'];
           if (!validCenterEntityTypes.includes(options.centerEntity.type)) {
-            return this.sendError(res, `Invalid centerEntity.type: ${options.centerEntity.type}. Must be one of: ${validCenterEntityTypes.join(', ')}`, 400, 'VALIDATION_ERROR');
+            return this.sendError(
+              res,
+              `Invalid centerEntity.type: ${options.centerEntity.type}. Must be one of: ${validCenterEntityTypes.join(', ')}`,
+              400,
+              'VALIDATION_ERROR'
+            );
           }
         }
 
@@ -303,7 +338,12 @@ export class ApiService {
         if (options.centerEntity && options.centerEntity.id) {
           // For test purposes, simulate entity not found for specific IDs
           if (options.centerEntity.id === 'non-existent-table') {
-            return this.sendError(res, `Center entity not found: ${options.centerEntity.id}`, 404, 'ENTITY_NOT_FOUND');
+            return this.sendError(
+              res,
+              `Center entity not found: ${options.centerEntity.id}`,
+              404,
+              'ENTITY_NOT_FOUND'
+            );
           }
         }
 
@@ -407,6 +447,25 @@ export class ApiService {
       } catch (error) {
         console.error('Graph generation error:', error);
         this.sendError(res, `Graph generation error: ${error}`, 500, 'INTERNAL_ERROR');
+      }
+    });
+
+    // Performance metrics endpoint (T007/T007a)
+    this.app.get('/api/projects/:id/performance', async (req, res) => {
+      try {
+        const projectId = req.params.id;
+        const project = await databaseService.getProject(projectId);
+        if (!project) {
+          return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
+        }
+        const aggregated = performanceMetricsService.getAggregated(projectId) || {
+          projectId,
+          parse: { count: 0, avgMs: 0, minMs: 0, maxMs: 0, lastMs: null, lastAt: undefined },
+          search: { count: 0, avgMs: 0, minMs: 0, maxMs: 0, lastMs: null, lastAt: undefined },
+        };
+        res.json({ success: true, performance: aggregated });
+      } catch (error) {
+        this.sendError(res, `Performance metrics error: ${error}`, 500, 'INTERNAL_ERROR');
       }
     });
 
@@ -519,7 +578,12 @@ export class ApiService {
         const { projectId, format } = req.body;
 
         if (!projectId || !format) {
-          return this.sendError(res, 'Missing required fields: projectId, format', 400, 'VALIDATION_ERROR');
+          return this.sendError(
+            res,
+            'Missing required fields: projectId, format',
+            400,
+            'VALIDATION_ERROR'
+          );
         }
 
         const project = await databaseService.getProject(projectId);
@@ -538,9 +602,12 @@ export class ApiService {
           html: 'text/html',
         };
 
-        res.setHeader('Content-Type', contentTypes[format as keyof typeof contentTypes] || 'application/octet-stream');
+        res.setHeader(
+          'Content-Type',
+          contentTypes[format as keyof typeof contentTypes] || 'application/octet-stream'
+        );
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        
+
         // Send mock streamed content
         const mockData = `{"project": "${project.name}", "exported": "${new Date().toISOString()}"}`;
         res.send(mockData);
@@ -567,32 +634,65 @@ export class ApiService {
           projects = projects.filter(p => p.status === status);
         }
         if (search) {
-          projects = projects.filter(p =>
-            p.name.toLowerCase().includes(search.toLowerCase())
-          );
+          projects = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
         }
 
         // Apply sorting
         if (sortBy) {
           projects.sort((a, b) => {
-            let aVal: any = a;
-            let bVal: any = b;
-            
+            // Dynamic property access: cast to Record<string, unknown>
+            let aVal: unknown = a;
+            let bVal: unknown = b;
+            const toComparable = (val: unknown): string => {
+              if (val === null || val === undefined) return '';
+              if (typeof val === 'string') return val.toLowerCase();
+              if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+              return JSON.stringify(val).toLowerCase();
+            };
+
             if (sortBy.includes('.')) {
               const keys = sortBy.split('.');
               for (const key of keys) {
-                aVal = aVal[key];
-                bVal = bVal[key];
+                if (
+                  typeof aVal === 'object' &&
+                  aVal !== null &&
+                  key in (aVal as Record<string, unknown>)
+                ) {
+                  aVal = (aVal as Record<string, unknown>)[key];
+                }
+                if (
+                  typeof bVal === 'object' &&
+                  bVal !== null &&
+                  key in (bVal as Record<string, unknown>)
+                ) {
+                  bVal = (bVal as Record<string, unknown>)[key];
+                }
               }
             } else {
-              aVal = aVal[sortBy as keyof typeof a];
-              bVal = bVal[sortBy as keyof typeof b];
+              if (
+                typeof aVal === 'object' &&
+                aVal !== null &&
+                sortBy in (aVal as Record<string, unknown>)
+              ) {
+                aVal = (aVal as Record<string, unknown>)[sortBy as keyof Record<string, unknown>];
+              }
+              if (
+                typeof bVal === 'object' &&
+                bVal !== null &&
+                sortBy in (bVal as Record<string, unknown>)
+              ) {
+                bVal = (bVal as Record<string, unknown>)[sortBy as keyof Record<string, unknown>];
+              }
             }
 
             if (sortOrder === 'desc') {
-              return bVal > aVal ? 1 : -1;
+              const aComp = toComparable(aVal);
+              const bComp = toComparable(bVal);
+              return bComp > aComp ? 1 : -1;
             }
-            return aVal > bVal ? 1 : -1;
+            const aCompFinal = toComparable(aVal);
+            const bCompFinal = toComparable(bVal);
+            return aCompFinal > bCompFinal ? 1 : -1;
           });
         }
 
@@ -645,7 +745,7 @@ export class ApiService {
     this.app.put('/api/projects/:id', async (req, res) => {
       try {
         const updates = req.body;
-        
+
         // Validate update data
         if (updates.name !== undefined && (!updates.name || updates.name.trim().length === 0)) {
           return this.sendError(res, 'Invalid name provided', 400, 'VALIDATION_ERROR');
@@ -656,7 +756,7 @@ export class ApiService {
             return this.sendError(res, 'Invalid status provided', 400, 'VALIDATION_ERROR');
           }
         }
-        
+
         const project = await databaseService.updateProject(req.params.id, updates);
 
         if (!project) {
@@ -679,18 +779,23 @@ export class ApiService {
     this.app.delete('/api/projects/:id', async (req, res) => {
       try {
         const cascade = req.query.cascade === 'true';
-        
+
         // Check if project exists first
         const project = await databaseService.getProject(req.params.id);
         if (!project) {
           return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
         }
-        
+
         // Prevent deletion of active projects without cascade
         if (req.params.id === 'active-project-id' && !cascade) {
-          return this.sendError(res, 'Cannot delete active project without cascade option', 409, 'PROJECT_ACTIVE');
+          return this.sendError(
+            res,
+            'Cannot delete active project without cascade option',
+            409,
+            'PROJECT_ACTIVE'
+          );
         }
-        
+
         const deleted = await databaseService.deleteProject(req.params.id);
 
         if (!deleted) {
@@ -714,7 +819,7 @@ export class ApiService {
       try {
         const tables = await databaseService.getTablesForProject(req.params.id);
 
-        const response: ApiResponse<any[]> = {
+        const response: ApiResponse<Table[]> = {
           success: true,
           data: tables,
           timestamp: new Date(),
@@ -737,42 +842,170 @@ export class ApiService {
           return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Get tables for the project
-        const tables = await databaseService.getTablesForProject(projectId);
+        // Read query param for collapsing occurrences
+        const collapseOccurrences = req.query.collapseOccurrences === 'true';
 
-        // Build graph data for Cytoscape using real relationships
+        const tables = await databaseService.getTablesForProject(projectId);
         const relationships = await databaseService.getRelationshipsForProject(projectId);
-        const elements = {
-          nodes: tables.map((table) => ({
+
+        interface CytoscapeNode {
+          data: {
+            id: string;
+            name: string;
+            label: string;
+            type: string;
+            isBaseTable?: boolean;
+            occurrenceCount?: number;
+            occurrenceNames?: string[];
+            isOccurrence?: boolean;
+            baseTableId?: string | null;
+            recordCount?: number;
+          };
+        }
+        interface CytoscapeEdge {
+          data: {
+            id: string;
+            type: string;
+            source: string;
+            target: string;
+            relationshipType?: string;
+            aggregated?: boolean;
+            relationshipIds?: string[];
+            occurrenceEdgeCount?: number;
+          };
+        }
+
+        const baseTableMap: Record<string, Table> = {};
+        const occurrencesByBase: Record<string, Table[]> = {};
+        if (collapseOccurrences) {
+          tables.forEach(t => {
+            if (t.isOccurrence && t.baseTableId) {
+              if (!occurrencesByBase[t.baseTableId]) occurrencesByBase[t.baseTableId] = [];
+              occurrencesByBase[t.baseTableId].push(t);
+            } else {
+              baseTableMap[t.id] = t;
+            }
+          });
+        }
+
+        let nodes: CytoscapeNode[];
+        if (collapseOccurrences) {
+          nodes = Object.values(baseTableMap).map(base => {
+            const occs = occurrencesByBase[base.id] || [];
+            return {
+              data: {
+                id: base.id,
+                name: base.name,
+                label: base.name,
+                type: 'table',
+                isBaseTable: true,
+                occurrenceCount: occs.length,
+                occurrenceNames: occs.map(o => o.name),
+              },
+            };
+          });
+        } else {
+          nodes = tables.map(table => ({
             data: {
               id: table.id,
               name: table.name,
               label: table.name,
               type: 'table',
-              recordCount: 0,
+              isOccurrence: table.isOccurrence || false,
+              baseTableId: table.baseTableId || null,
+              recordCount: table.recordCount || 0,
             },
-          })),
-          edges: relationships.map((rel, idx) => {
-            // Try to match by name, fallback to baseTable
-            const sourceTable = tables.find(t => t.name === rel.leftTable || t.baseTable === rel.leftTable);
-            const targetTable = tables.find(t => t.name === rel.rightTable || t.baseTable === rel.rightTable);
-            if (!sourceTable || !targetTable) {
-              // Skip edge if source/target not found
-              console.warn(`Skipping edge: cannot find node for relationship ${rel.id} (${rel.leftTable} -> ${rel.rightTable})`);
-              return null;
+          }));
+        }
+
+        let edges: CytoscapeEdge[];
+        if (collapseOccurrences) {
+          const dedup: Record<
+            string,
+            {
+              relIds: string[];
+              source: string;
+              target: string;
+              type: string;
+              count: number;
             }
-            return {
-              data: {
-                id: rel.id || `rel-${idx}`,
-                type: 'relationship',
-                source: sourceTable.id,
-                target: targetTable.id,
-                relationshipType: rel.type,
-              },
-            };
-          }).filter(Boolean),
-        };
-        res.json({ success: true, elements });
+          > = {};
+          relationships.forEach(rel => {
+            const sourceTable = tables.find(
+              t => t.name === rel.leftTable || t.baseTable === rel.leftTable
+            );
+            const targetTable = tables.find(
+              t => t.name === rel.rightTable || t.baseTable === rel.rightTable
+            );
+            if (!sourceTable || !targetTable) {
+              console.warn(
+                `Skipping edge: cannot find node for relationship ${rel.id} (${rel.leftTable} -> ${rel.rightTable})`
+              );
+              return;
+            }
+            const sourceBaseId =
+              sourceTable.isOccurrence && sourceTable.baseTableId
+                ? sourceTable.baseTableId
+                : sourceTable.id;
+            const targetBaseId =
+              targetTable.isOccurrence && targetTable.baseTableId
+                ? targetTable.baseTableId
+                : targetTable.id;
+            const key = `${sourceBaseId}__${targetBaseId}__${rel.type}`;
+            if (!dedup[key]) {
+              dedup[key] = {
+                relIds: [],
+                source: sourceBaseId,
+                target: targetBaseId,
+                type: rel.type,
+                count: 0,
+              };
+            }
+            dedup[key].relIds.push(rel.id);
+            dedup[key].count += 1;
+          });
+          edges = Object.values(dedup).map(group => ({
+            data: {
+              id: `${group.source}-${group.target}-${group.type}`,
+              type: 'relationship',
+              source: group.source,
+              target: group.target,
+              relationshipType: group.type,
+              aggregated: true,
+              relationshipIds: group.relIds,
+              occurrenceEdgeCount: group.count,
+            },
+          }));
+        } else {
+          edges = relationships
+            .map((rel, idx) => {
+              const sourceTable = tables.find(
+                t => t.name === rel.leftTable || t.baseTable === rel.leftTable
+              );
+              const targetTable = tables.find(
+                t => t.name === rel.rightTable || t.baseTable === rel.rightTable
+              );
+              if (!sourceTable || !targetTable) {
+                console.warn(
+                  `Skipping edge: cannot find node for relationship ${rel.id} (${rel.leftTable} -> ${rel.rightTable})`
+                );
+                return null;
+              }
+              return {
+                data: {
+                  id: rel.id || `rel-${idx}`,
+                  type: 'relationship',
+                  source: sourceTable.id,
+                  target: targetTable.id,
+                  relationshipType: rel.type,
+                },
+              } as CytoscapeEdge;
+            })
+            .filter(Boolean) as CytoscapeEdge[];
+        }
+
+        const elements = { nodes, edges };
+        res.json({ success: true, elements, collapseOccurrences });
       } catch (error) {
         console.error('Graph endpoint error:', error);
         this.sendError(res, `Failed to get graph data: ${error}`, 500);
@@ -819,7 +1052,7 @@ export class ApiService {
       try {
         const fields = await databaseService.getFieldsForProject(req.params.id);
 
-        const response: ApiResponse<any[]> = {
+        const response: ApiResponse<Field[]> = {
           success: true,
           data: fields,
           timestamp: new Date(),
@@ -841,7 +1074,7 @@ export class ApiService {
           return this.sendError(res, 'Project not found', 404);
         }
 
-        const response: ApiResponse<any> = {
+        const response: ApiResponse<ProjectStatistics> = {
           success: true,
           data: project.statistics,
           timestamp: new Date(),
@@ -863,7 +1096,7 @@ export class ApiService {
           return this.sendError(res, 'Project not found', 404);
         }
 
-        const response: ApiResponse<any> = {
+        const response: ApiResponse<ProjectMetadata> = {
           success: true,
           data: project.metadata,
           timestamp: new Date(),
@@ -886,8 +1119,7 @@ export class ApiService {
           return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        const options = req.body || {};
-        const { format = 'json' } = options;
+        // (options placeholder removed; async job always created regardless of options)
 
         // Generate a job ID for async export
         const jobId = `export-${Date.now()}`;
@@ -980,7 +1212,7 @@ export class ApiService {
     this.app.post('/api/projects/:id/backup', async (req, res) => {
       try {
         const { description = `Backup created on ${new Date().toISOString()}` } = req.body;
-        
+
         // Validate that project exists
         const project = await databaseService.getProject(req.params.id);
         if (!project) {
@@ -1014,7 +1246,7 @@ export class ApiService {
     this.app.get('/api/projects/:id/backups', async (req, res) => {
       try {
         const projectId = req.params.id;
-        
+
         const project = await databaseService.getProject(projectId);
         if (!project) {
           return this.sendError(res, 'Project not found', 404, 'PROJECT_NOT_FOUND');
@@ -1048,7 +1280,7 @@ export class ApiService {
     // Restore from Backup
     this.app.post('/api/projects/:id/restore/:backupId', async (req, res) => {
       try {
-        const { id: projectId, backupId } = req.params;
+        const { backupId } = req.params;
 
         // Validate backup exists (mock validation)
         if (backupId === 'non-existent-backup') {

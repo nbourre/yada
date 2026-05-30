@@ -5,7 +5,7 @@
 
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell } from 'electron';
 import { join } from 'path';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import { createReadStream, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import FormData from 'form-data';
@@ -13,7 +13,6 @@ import fetch from 'node-fetch';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
-let serverProcess: ChildProcess | null = null;
 
 const isDev = process.env.NODE_ENV === 'development';
 const PORT = process.env.PORT || 3000;
@@ -41,7 +40,7 @@ function createMainWindow(): void {
   // Load the React application
   // Always load from localhost since the server serves the static files
   mainWindow.loadURL(`http://localhost:${PORT}`);
-  
+
   // Always open DevTools to debug loading issues
   mainWindow.webContents.openDevTools();
 
@@ -68,51 +67,26 @@ function createMainWindow(): void {
 /**
  * Start the Express server in development or production
  */
-function startServer(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    console.log('startServer called, isDev:', isDev);
-    
-    if (isDev) {
-      // In development, assume server is already running
-      console.log('Development mode - skipping server start');
-      resolve();
-      return;
-    }
+async function startServer(): Promise<void> {
+  console.log('startServer called, isDev:', isDev);
 
-    console.log('Production mode - starting server...');
-    // In production, start the server process
-    const serverPath = join(__dirname, '../server/server/index.js');
-    console.log('Server path:', serverPath);
-    
-    serverProcess = spawn('node', [serverPath], {
-      env: { ...process.env, PORT: PORT.toString() },
-      stdio: 'pipe',
-    });
+  if (isDev) {
+    // In development, assume server is already running
+    console.log('Development mode - skipping server start');
+    return;
+  }
 
-    serverProcess.stdout?.on('data', data => {
-      console.log(`Server: ${data}`);
-    });
+  console.log('Production mode - starting server in-process...');
+  // Load and start the server directly in the main process.
+  // This avoids spawning a child `node` process (which requires Node.js in PATH
+  // and can't read files from inside an asar archive in packaged builds).
+  const serverPath = join(__dirname, '../server/server/index.js');
+  console.log('Server path:', serverPath);
 
-    serverProcess.stderr?.on('data', data => {
-      console.error(`Server Error: ${data}`);
-    });
-
-    serverProcess.on('error', error => {
-      console.error('Failed to start server process:', error);
-      reject(error);
-    });
-
-    serverProcess.on('exit', (code, signal) => {
-      console.log(`Server process exited with code ${code}, signal ${signal}`);
-    });
-
-    // Give server time to start
-    console.log('Waiting 2 seconds for server to start...');
-    setTimeout(() => {
-      console.log('Server should be ready now');
-      resolve();
-    }, 2000);
-  });
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { startServer: runServer } = require(serverPath);
+  await runServer();
+  console.log('Server started successfully in main process');
 }
 
 /**
@@ -385,7 +359,7 @@ function setupIPC(): void {
   ipcMain.handle('parse-file', async (event, filePath: string) => {
     try {
       console.log('Main: Starting to parse file:', filePath);
-      
+
       // Send progress update
       if (mainWindow) {
         mainWindow.webContents.send('parse-progress', 0, 'Starting parse...');
@@ -407,13 +381,13 @@ function setupIPC(): void {
       const result = await response.json();
 
       console.log('Main: Parse completed successfully', result);
-      
+
       // Extract the project from the API response
       // Server returns: { success: true, data: ParseResult }
       // ParseResult has: { project, statistics, parseTime, errors }
       const parseResult = result.data || result;
       const project = parseResult.project || parseResult;
-      
+
       // Send parsed project to renderer
       if (mainWindow) {
         mainWindow.webContents.send('project-parsed', project);
@@ -423,7 +397,7 @@ function setupIPC(): void {
     } catch (error) {
       console.error('Main: Parse error:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
+
       // Send error to renderer
       if (mainWindow) {
         mainWindow.webContents.send('parse-error', errorMessage);
@@ -472,12 +446,7 @@ app.on('activate', () => {
   }
 });
 
-// Cleanup on app quit
-app.on('before-quit', () => {
-  if (serverProcess) {
-    serverProcess.kill();
-  }
-});
+// Cleanup on app quit (server runs in-process; no child process to kill)
 
 // Security: Prevent new window creation from renderer
 app.on('web-contents-created', (event, contents) => {

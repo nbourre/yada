@@ -9,22 +9,25 @@ describe('Debug XML Parser', () => {
       path.join(__dirname, 'fixtures', 'small_database.xml'),
       path.join(process.cwd(), 'tests', 'fixtures', 'small_database.xml'),
       'tests/fixtures/small_database.xml',
-      'tests\\fixtures\\small_database.xml'
+      'tests\\fixtures\\small_database.xml',
     ];
 
     for (const filePath of paths) {
       try {
         console.log(`Trying path: ${filePath}`);
-        const exists = await fs.access(filePath).then(() => true).catch(() => false);
+        const exists = await fs
+          .access(filePath)
+          .then(() => true)
+          .catch(() => false);
         console.log(`Exists: ${exists}`);
-        
+
         if (exists) {
           const content = await fs.readFile(filePath, 'utf-8');
           console.log(`First 100 chars: ${content.substring(0, 100)}`);
-          
+
           const validation = await xmlParserService.validateXMLFile(filePath);
           console.log(`Validation: ${JSON.stringify(validation)}`);
-          
+
           if (validation.isValid) {
             expect(validation.isValid).toBe(true);
             return; // Success!
@@ -34,7 +37,7 @@ describe('Debug XML Parser', () => {
         console.log(`Error with ${filePath}: ${error}`);
       }
     }
-    
+
     fail('No valid path found');
   });
 });

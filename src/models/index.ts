@@ -22,6 +22,7 @@ export interface Project extends BaseEntity {
 
 export interface ProjectStatistics {
   tableCount: number;
+  occurrenceCount: number; // number of table occurrences (TOs)
   fieldCount: number;
   layoutCount: number;
   scriptCount: number;
@@ -46,6 +47,8 @@ export interface Table extends BaseEntity {
   occurrence: string;
   sourceTable?: string;
   baseTable?: string;
+  baseTableId?: string; // id from TableList for occurrences
+  isOccurrence?: boolean; // true if this is a table occurrence (TO), false if base table
   recordCount?: number;
   fields: Field[];
   relationships: Relationship[];

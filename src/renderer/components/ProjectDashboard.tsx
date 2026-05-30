@@ -3,7 +3,7 @@
  * Displays project overview, statistics, and project list
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Grid,
   Card,
@@ -16,23 +16,9 @@ import {
   ListItemButton,
   Chip,
   CircularProgress,
-  Paper,
-  Divider,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+  // Removed unused UI imports (Paper, Divider, Button, Dialog components, TextField)
 } from '@mui/material';
-import {
-  TableChart,
-  ViewColumn,
-  Web,
-  Code,
-  AccountTree,
-  Functions,
-} from '@mui/icons-material';
+import { TableChart, ViewColumn, Web, Code, AccountTree, Functions } from '@mui/icons-material';
 
 import { Project } from '../../models';
 
@@ -45,7 +31,7 @@ interface ProjectDashboardProps {
 
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   project,
-  projects = [],  // Default to empty array if undefined
+  projects = [], // Default to empty array if undefined
   onProjectSelect,
   loading,
 }) => {
@@ -70,26 +56,29 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     );
   }
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string | null | undefined) => {
+    if (!date) return 'N/A';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return 'N/A';
     return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    }).format(new Date(date));
+    }).format(d);
   };
 
   const formatFileSize = (bytes: number) => {
     const units = ['B', 'KB', 'MB', 'GB'];
     let size = bytes;
     let unitIndex = 0;
-    
+
     while (size >= 1024 && unitIndex < units.length - 1) {
       size /= 1024;
       unitIndex++;
     }
-    
+
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   };
 
@@ -103,7 +92,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               Recent Projects
             </Typography>
             <List dense>
-              {projects.map((proj) => (
+              {projects.map(proj => (
                 <ListItem key={proj.id} disablePadding>
                   <ListItemButton
                     onClick={() => onProjectSelect(proj)}
@@ -123,8 +112,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                               proj.status === 'ready'
                                 ? 'success'
                                 : proj.status === 'error'
-                                ? 'error'
-                                : 'warning'
+                                  ? 'error'
+                                  : 'warning'
                             }
                           />
                         </Box>
@@ -266,33 +255,25 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                   <Typography variant="body2" color="textSecondary">
                     FileMaker Version
                   </Typography>
-                  <Typography variant="body1">
-                    {project.metadata.fileMakerVersion}
-                  </Typography>
+                  <Typography variant="body1">{project.metadata.fileMakerVersion}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">
                     Platform
                   </Typography>
-                  <Typography variant="body1">
-                    {project.metadata.platform}
-                  </Typography>
+                  <Typography variant="body1">{project.metadata.platform}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">
                     Created By
                   </Typography>
-                  <Typography variant="body1">
-                    {project.metadata.createdBy}
-                  </Typography>
+                  <Typography variant="body1">{project.metadata.createdBy}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">
                     Modified By
                   </Typography>
-                  <Typography variant="body1">
-                    {project.metadata.modifiedBy}
-                  </Typography>
+                  <Typography variant="body1">{project.metadata.modifiedBy}</Typography>
                 </Grid>
               </Grid>
             </CardContent>

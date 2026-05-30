@@ -42,7 +42,8 @@ const electronAPI: ElectronAPI = {
   showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   parseFile: (filePath: string) => ipcRenderer.invoke('parse-file', filePath),
-  writeTempFile: (fileName: string, content: string) => ipcRenderer.invoke('write-temp-file', fileName, content),
+  writeTempFile: (fileName: string, content: string) =>
+    ipcRenderer.invoke('write-temp-file', fileName, content),
 
   // App info
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

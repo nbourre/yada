@@ -115,7 +115,7 @@ export default function App() {
         method: 'GET',
         signal: AbortSignal.timeout(5000), // 5 second timeout
       });
-      
+
       if (!response.ok) {
         // If endpoint doesn't exist yet, just start with empty projects
         console.log('Projects endpoint not available yet');
@@ -123,11 +123,11 @@ export default function App() {
         setLoading(false);
         return;
       }
-      
+
       const result = await response.json();
 
       if (result.success) {
-        setProjects(result.data);
+        setProjects(result.projects ?? result.data ?? []);
       } else {
         setProjects([]);
       }
@@ -206,10 +206,10 @@ export default function App() {
       // For now, we'll use a mock file path since we can't get the actual file path from File object
       // In a real implementation, you would save the file temporarily or get the path differently
       const mockFilePath = `temp/${file.name}`;
-      
+
       // Start parsing via electron IPC
       await window.electronAPI.parseFile(mockFilePath);
-      
+
       // The result will be handled by the IPC event listeners
     } catch (error) {
       console.error('Error uploading file:', error);

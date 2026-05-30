@@ -15,11 +15,10 @@ async function startServer(): Promise<void> {
     console.log('Starting FileMaker DDR Analysis Server...');
     await apiService.start(PORT);
     console.log(`Server successfully started on port ${PORT}`);
-    
+
     // Graceful shutdown handlers
     process.on('SIGTERM', gracefulShutdown);
     process.on('SIGINT', gracefulShutdown);
-    
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
@@ -31,7 +30,7 @@ async function startServer(): Promise<void> {
  */
 function gracefulShutdown(signal: string): void {
   console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
-  
+
   // Give a brief moment for cleanup
   setTimeout(() => {
     console.log('Server shut down complete.');

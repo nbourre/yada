@@ -3,7 +3,7 @@
  * Interactive database relationship visualization using Cytoscape.js
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Box,
   Card,
@@ -23,20 +23,18 @@ import {
   Drawer,
   List,
   ListItem,
-  ListItemText,
+  // Removed unused ListItemText and Timeline imports to satisfy eslint
   Divider,
   Alert,
-} from "@mui/material";
+} from '@mui/material';
 import {
   ZoomIn,
   ZoomOut,
   CenterFocusStrong,
-  FilterList,
   Download,
   Settings,
   Refresh,
-  Timeline,
-} from "@mui/icons-material";
+} from '@mui/icons-material';
 
 interface GraphVisualizationProps {
   projectId: string | null;
@@ -58,20 +56,28 @@ interface GraphStats {
   orphanTables: number;
 }
 
-const GraphVisualization: React.FC<GraphVisualizationProps> = ({
-  projectId,
-}) => {
-  const cyRef = useRef<any>(null);
+const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) => {
+  // Use a narrowed type for Cytoscape instance
+  const cyRef = useRef<import('cytoscape').Core | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [graphData, setGraphData] = useState<any>(null);
+  interface GraphElementNode {
+    data: { id: string; name?: string; type: string; description?: string };
+  }
+  interface GraphElementEdge {
+    data: { id?: string; source: string; target: string };
+  }
+  interface GraphData {
+    elements: { nodes: GraphElementNode[]; edges: GraphElementEdge[] };
+  }
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<GraphStats | null>(null);
-  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphElementNode['data'] | null>(null);
 
   const [settings, setSettings] = useState<GraphSettings>({
-    layout: "cose",
+    layout: 'cose',
     showLabels: true,
     showOrphans: true,
     nodeSize: 30,
@@ -80,23 +86,25 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
   });
 
   const LAYOUT_OPTIONS = [
-    { value: "cose", label: "Force Directed (COSE)" },
-    { value: "grid", label: "Grid" },
-    { value: "circle", label: "Circle" },
-    { value: "concentric", label: "Concentric" },
-    { value: "breadthfirst", label: "Hierarchical" },
+    { value: 'cose', label: 'Force Directed (COSE)' },
+    { value: 'grid', label: 'Grid' },
+    { value: 'circle', label: 'Circle' },
+    { value: 'concentric', label: 'Concentric' },
+    { value: 'breadthfirst', label: 'Hierarchical' },
   ];
 
   useEffect(() => {
     if (projectId) {
-      loadGraphData();
+      void loadGraphData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => {
     if (graphData && containerRef.current) {
-      initializeCytoscape();
+      void initializeCytoscape();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphData, settings]);
 
   const loadGraphData = async () => {
@@ -112,32 +120,23 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
         throw new Error(`Failed to load graph data: ${response.statusText}`);
       }
 
-      const data = await response.json();
+  const data = (await response.json()) as GraphData;
       setGraphData(data);
 
       // Calculate stats
-      const tables = data.elements.nodes.filter(
-        (n: any) => n.data.type === "table",
-      ).length;
+      const tables = data.elements.nodes.filter(n => n.data.type === 'table').length;
       const relationships = data.elements.edges.length;
-      const fields = data.elements.nodes.filter(
-        (n: any) => n.data.type === "field",
-      ).length;
+      const fields = data.elements.nodes.filter(n => n.data.type === 'field').length;
       const orphanTables = data.elements.nodes.filter(
-        (n: any) =>
-          n.data.type === "table" &&
-          !data.elements.edges.some(
-            (e: any) =>
-              e.data.source === n.data.id || e.data.target === n.data.id,
-          ),
+        n =>
+          n.data.type === 'table' &&
+          !data.elements.edges.some(e => e.data.source === n.data.id || e.data.target === n.data.id)
       ).length;
 
       setStats({ tables, relationships, fields, orphanTables });
     } catch (err) {
-      console.error("Graph loading error:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load graph data",
-      );
+      console.error('Graph loading error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load graph data');
     } finally {
       setLoading(false);
     }
@@ -147,7 +146,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
     if (!containerRef.current || !graphData) return;
 
     // Dynamically import Cytoscape
-    const cytoscape = (await import("cytoscape")).default;
+    const cytoscape = (await import('cytoscape')).default;
 
     // Clear previous instance
     if (cyRef.current) {
@@ -155,16 +154,15 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
     }
 
     // Filter data based on settings
-    const filteredElements = {
+    const filteredElements: GraphData['elements'] = {
       nodes: settings.showOrphans
         ? graphData.elements.nodes
         : graphData.elements.nodes.filter(
-            (n: any) =>
-              n.data.type !== "table" ||
+            n =>
+              n.data.type !== 'table' ||
               graphData.elements.edges.some(
-                (e: any) =>
-                  e.data.source === n.data.id || e.data.target === n.data.id,
-              ),
+                e => e.data.source === n.data.id || e.data.target === n.data.id
+              )
           ),
       edges: graphData.elements.edges,
     };
@@ -176,50 +174,47 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
         {
           selector: 'node[type = "table"]',
           style: {
-            "background-color": "#2196F3",
-            label: settings.showLabels ? "data(label)" : "",
-            "text-valign": "center",
-            "text-halign": "center",
-            color: "#ffffff",
-            "font-size": "12px",
+            'background-color': '#2196F3',
+            label: settings.showLabels ? 'data(label)' : '',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            color: '#ffffff',
+            'font-size': '12px',
             width: settings.nodeSize,
             height: settings.nodeSize,
-            "border-width": 2,
-            "border-color": "#1976D2",
+            'border-width': 2,
+            'border-color': '#1976D2',
           },
         },
         {
           selector: 'node[type = "field"]',
           style: {
-            "background-color": "#4CAF50",
-            label:
-              settings.showLabels && settings.showFieldTypes
-                ? "data(label)"
-                : "",
-            "text-valign": "center",
-            "text-halign": "center",
-            color: "#ffffff",
-            "font-size": "10px",
+            'background-color': '#4CAF50',
+            label: settings.showLabels && settings.showFieldTypes ? 'data(label)' : '',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            color: '#ffffff',
+            'font-size': '10px',
             width: settings.nodeSize * 0.7,
             height: settings.nodeSize * 0.7,
           },
         },
         {
-          selector: "edge",
+          selector: 'edge',
           style: {
             width: settings.edgeWidth,
-            "line-color": "#9E9E9E",
-            "target-arrow-color": "#9E9E9E",
-            "target-arrow-shape": "triangle",
-            "curve-style": "bezier",
+            'line-color': '#9E9E9E',
+            'target-arrow-color': '#9E9E9E',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
           },
         },
         {
-          selector: ":selected",
+          selector: ':selected',
           style: {
-            "border-width": 4,
-            "border-color": "#FF5722",
-            "background-color": "#FF5722",
+            'border-width': 4,
+            'border-color': '#FF5722',
+            'background-color': '#FF5722',
           },
         },
       ],
@@ -231,17 +226,12 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
     });
 
     // Event handlers
-    cy.on("tap", "node", (evt) => {
+    cy.on('tap', 'node', evt => {
       const node = evt.target;
-      setSelectedNode({
-        id: node.data("id"),
-        name: node.data("name"),
-        type: node.data("type"),
-        data: node.data(),
-      });
+      setSelectedNode(node.data());
     });
 
-    cy.on("tap", (evt) => {
+    cy.on('tap', evt => {
       if (evt.target === cy) {
         setSelectedNode(null);
       }
@@ -271,35 +261,37 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
   const handleLayoutChange = (layout: string) => {
     setSettings({ ...settings, layout });
     if (cyRef.current) {
-      cyRef.current.layout({ name: layout, animate: true, fit: true }).run();
+      cyRef.current.layout({ name: layout, animate: true, fit: true } as any).run();
     }
   };
 
-  const exportGraph = async (format: "png" | "jpg" | "svg") => {
+  const exportGraph = async (format: 'png' | 'jpg' | 'svg') => {
     if (!cyRef.current) return;
 
     try {
-      const link = document.createElement("a");
-      link.download = `database-graph-${new Date().toISOString().split("T")[0]}.${format}`;
+      const link = document.createElement('a');
+      link.download = `database-graph-${new Date().toISOString().split('T')[0]}.${format}`;
 
-      if (format === "svg") {
-        const svgData = cyRef.current.svg({ scale: 2, full: true });
-        const blob = new Blob([svgData], { type: "image/svg+xml" });
+      if (format === 'svg') {
+        const coreWithSvg = cyRef.current as unknown as { svg: (opts: { scale?: number; full?: boolean }) => string };
+        const svgData = coreWithSvg.svg({ scale: 2, full: true });
+        const blob = new Blob([svgData], { type: 'image/svg+xml' });
         link.href = URL.createObjectURL(blob);
       } else {
-        const blob = cyRef.current.png({
-          output: "blob",
+        const blob = (cyRef.current as unknown as { png: (opts: any) => string | Blob }).png({
+          output: 'blob',
           scale: 2,
           full: true,
-          bg: "#ffffff",
+          bg: '#ffffff',
         });
-        link.href = URL.createObjectURL(blob);
+        const href = typeof blob === 'string' ? blob : URL.createObjectURL(blob);
+        link.href = href;
       }
 
       link.click();
     } catch (err) {
-      console.error("Export error:", err);
-      setError("Failed to export graph");
+      console.error('Export error:', err);
+      setError('Failed to export graph');
     }
   };
 
@@ -324,14 +316,14 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
         <CardContent>
           <Box
             sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
               gap: 2,
             }}
           >
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <ButtonGroup size="small">
                 <Tooltip title="Zoom In">
                   <IconButton
@@ -367,10 +359,10 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
                 <Select
                   value={settings.layout}
                   label="Layout"
-                  onChange={(e) => handleLayoutChange(e.target.value)}
+                  onChange={e => handleLayoutChange(e.target.value)}
                   disabled={!graphData}
                 >
-                  {LAYOUT_OPTIONS.map((option) => (
+                  {LAYOUT_OPTIONS.map(option => (
                     <MenuItem key={option.value} value={option.value}>
                       {option.label}
                     </MenuItem>
@@ -379,7 +371,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
               </FormControl>
             </Box>
 
-            <Box sx={{ display: "flex", gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
                 startIcon={<Refresh />}
                 onClick={loadGraphData}
@@ -390,17 +382,13 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
               </Button>
               <Button
                 startIcon={<Download />}
-                onClick={() => exportGraph("png")}
+                onClick={() => exportGraph('png')}
                 disabled={!graphData}
                 size="small"
               >
                 Export PNG
               </Button>
-              <Button
-                startIcon={<Settings />}
-                onClick={() => setSettingsOpen(true)}
-                size="small"
-              >
+              <Button startIcon={<Settings />} onClick={() => setSettingsOpen(true)} size="small">
                 Settings
               </Button>
             </Box>
@@ -408,7 +396,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
 
           {/* Stats */}
           {stats && (
-            <Box sx={{ mt: 2, display: "flex", gap: 3, flexWrap: "wrap" }}>
+            <Box sx={{ mt: 2, display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               <Typography variant="body2">
                 <strong>Tables:</strong> {stats.tables}
               </Typography>
@@ -420,9 +408,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
               </Typography>
               <Typography
                 variant="body2"
-                color={
-                  stats.orphanTables > 0 ? "warning.main" : "text.secondary"
-                }
+                color={stats.orphanTables > 0 ? 'warning.main' : 'text.secondary'}
               >
                 <strong>Orphan Tables:</strong> {stats.orphanTables}
               </Typography>
@@ -440,25 +426,21 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
 
       {/* Graph Container */}
       <Card sx={{ height: 600 }}>
-        <CardContent sx={{ height: "100%", p: 0 }}>
+        <CardContent sx={{ height: '100%', p: 0 }}>
           <div
             ref={containerRef}
             data-testid="relationship-graph"
             style={{
-              width: "100%",
-              height: "100%",
-              backgroundColor: "#fafafa",
+              width: '100%',
+              height: '100%',
+              backgroundColor: '#fafafa',
             }}
           />
         </CardContent>
       </Card>
 
       {/* Settings Drawer */}
-      <Drawer
-        anchor="right"
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      >
+      <Drawer anchor="right" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <Box sx={{ width: 300, p: 3 }}>
           <Typography variant="h6" gutterBottom>
             Graph Settings
@@ -470,9 +452,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
                 control={
                   <Switch
                     checked={settings.showLabels}
-                    onChange={(e) =>
-                      setSettings({ ...settings, showLabels: e.target.checked })
-                    }
+                    onChange={e => setSettings({ ...settings, showLabels: e.target.checked })}
                   />
                 }
                 label="Show Labels"
@@ -484,7 +464,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
                 control={
                   <Switch
                     checked={settings.showOrphans}
-                    onChange={(e) =>
+                    onChange={e =>
                       setSettings({
                         ...settings,
                         showOrphans: e.target.checked,
@@ -501,7 +481,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
                 control={
                   <Switch
                     checked={settings.showFieldTypes}
-                    onChange={(e) =>
+                    onChange={e =>
                       setSettings({
                         ...settings,
                         showFieldTypes: e.target.checked,
@@ -516,13 +496,11 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
             <Divider />
 
             <ListItem>
-              <Box sx={{ width: "100%" }}>
+              <Box sx={{ width: '100%' }}>
                 <Typography gutterBottom>Node Size</Typography>
                 <Slider
                   value={settings.nodeSize}
-                  onChange={(_, value) =>
-                    setSettings({ ...settings, nodeSize: value as number })
-                  }
+                  onChange={(_, value) => setSettings({ ...settings, nodeSize: value as number })}
                   min={20}
                   max={60}
                   step={5}
@@ -532,13 +510,11 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
             </ListItem>
 
             <ListItem>
-              <Box sx={{ width: "100%" }}>
+              <Box sx={{ width: '100%' }}>
                 <Typography gutterBottom>Edge Width</Typography>
                 <Slider
                   value={settings.edgeWidth}
-                  onChange={(_, value) =>
-                    setSettings({ ...settings, edgeWidth: value as number })
-                  }
+                  onChange={(_, value) => setSettings({ ...settings, edgeWidth: value as number })}
                   min={1}
                   max={5}
                   step={0.5}
@@ -555,14 +531,14 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
         <Card sx={{ mt: 2 }}>
           <CardContent>
             <Typography variant="h6" gutterBottom>
-              {selectedNode.type === "table" ? "📋" : "🏷️"} {selectedNode.name}
+              {selectedNode.type === 'table' ? '📋' : '🏷️'} {selectedNode.name}
             </Typography>
             <Typography variant="body2" color="textSecondary">
               Type: {selectedNode.type}
             </Typography>
-            {selectedNode.data.description && (
+            {selectedNode.description && (
               <Typography variant="body2" sx={{ mt: 1 }}>
-                {selectedNode.data.description}
+                {selectedNode.description}
               </Typography>
             )}
           </CardContent>
@@ -570,7 +546,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({
       )}
 
       {loading && (
-        <Box sx={{ textAlign: "center", py: 4 }}>
+        <Box sx={{ textAlign: 'center', py: 4 }}>
           <Typography variant="body1">Loading graph data...</Typography>
         </Box>
       )}

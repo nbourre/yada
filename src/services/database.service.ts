@@ -34,7 +34,7 @@ export class DatabaseService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     // Create some mock data
     const mockProject: Project = {
       id: 'test-project-id',
@@ -48,6 +48,7 @@ export class DatabaseService {
       updatedAt: new Date(),
       statistics: {
         tableCount: 5,
+        occurrenceCount: 0,
         fieldCount: 25,
         layoutCount: 10,
         scriptCount: 8,
@@ -66,9 +67,9 @@ export class DatabaseService {
         customMenus: [],
       },
     };
-    
+
     this.mockProjects.set(mockProject.id, mockProject);
-    
+
     // Add additional mock project for export tests
     const exportTestProject: Project = {
       id: 'test-project',
@@ -82,6 +83,7 @@ export class DatabaseService {
       updatedAt: new Date(),
       statistics: {
         tableCount: 3,
+        occurrenceCount: 0,
         fieldCount: 15,
         layoutCount: 5,
         scriptCount: 4,
@@ -100,9 +102,9 @@ export class DatabaseService {
         customMenus: [],
       },
     };
-    
+
     this.mockProjects.set(exportTestProject.id, exportTestProject);
-    
+
     // Add empty project for graph testing
     const emptyProject: Project = {
       id: 'empty-project',
@@ -116,6 +118,7 @@ export class DatabaseService {
       updatedAt: new Date(),
       statistics: {
         tableCount: 0,
+        occurrenceCount: 0,
         fieldCount: 0,
         layoutCount: 0,
         scriptCount: 0,
@@ -134,10 +137,10 @@ export class DatabaseService {
         customMenus: [],
       },
     };
-    
+
     this.mockProjects.set(emptyProject.id, emptyProject);
-    
-    // Add active project for deletion testing 
+
+    // Add active project for deletion testing
     const activeProject: Project = {
       id: 'active-project-id',
       name: 'Active Project',
@@ -150,6 +153,7 @@ export class DatabaseService {
       updatedAt: new Date(),
       statistics: {
         tableCount: 2,
+        occurrenceCount: 0,
         fieldCount: 10,
         layoutCount: 3,
         scriptCount: 2,
@@ -168,7 +172,7 @@ export class DatabaseService {
         customMenus: [],
       },
     };
-    
+
     this.mockProjects.set(activeProject.id, activeProject);
     this.initialized = true;
   }
@@ -176,14 +180,14 @@ export class DatabaseService {
   // Project operations
   async createProject(project: Omit<Project, 'createdAt' | 'updatedAt'>): Promise<Project> {
     if (!this.initialized) await this.initialize();
-    
+
     const now = new Date();
     const fullProject: Project = {
       ...project,
       createdAt: now,
       updatedAt: now,
     };
-    
+
     this.mockProjects.set(fullProject.id, fullProject);
     return fullProject;
   }
@@ -200,10 +204,10 @@ export class DatabaseService {
 
   async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
     if (!this.initialized) await this.initialize();
-    
+
     const existing = this.mockProjects.get(id);
     if (!existing) return null;
-    
+
     const updated = { ...existing, ...updates, updatedAt: new Date() };
     this.mockProjects.set(id, updated);
     return updated;
@@ -217,7 +221,7 @@ export class DatabaseService {
   // Table operations
   async createTable(table: Omit<Table, 'createdAt' | 'updatedAt'>): Promise<Table> {
     if (!this.initialized) await this.initialize();
-    
+
     const now = new Date();
     const fullTable: Table = {
       ...table,
@@ -226,7 +230,7 @@ export class DatabaseService {
       fields: [],
       relationships: [],
     };
-    
+
     this.mockTables.set(fullTable.id, fullTable);
     return fullTable;
   }
@@ -239,7 +243,7 @@ export class DatabaseService {
   // Field operations
   async createField(field: Omit<Field, 'createdAt' | 'updatedAt'>): Promise<Field> {
     if (!this.initialized) await this.initialize();
-    
+
     const now = new Date();
     const fullField: Field = {
       ...field,
@@ -257,7 +261,7 @@ export class DatabaseService {
       autoEnter: field.autoEnter || {},
       storage: field.storage || {},
     };
-    
+
     this.mockFields.set(fullField.id, fullField);
     return fullField;
   }
@@ -274,9 +278,9 @@ export class DatabaseService {
     entityTypes: string[]
   ): Promise<SearchResult[]> {
     if (!this.initialized) await this.initialize();
-    
+
     const results: SearchResult[] = [];
-    
+
     if (entityTypes.includes('table')) {
       const tables = await this.getTablesForProject(projectId);
       tables
@@ -290,7 +294,7 @@ export class DatabaseService {
           });
         });
     }
-    
+
     if (entityTypes.includes('field')) {
       const fields = await this.getFieldsForProject(projectId);
       fields
@@ -304,7 +308,7 @@ export class DatabaseService {
           });
         });
     }
-    
+
     return results;
   }
 
@@ -314,7 +318,7 @@ export class DatabaseService {
     return new Uint8Array();
   }
 
-  import(data: Uint8Array): void {
+  import(_data: Uint8Array): void {
     // Mock import - does nothing
   }
 
@@ -323,6 +327,7 @@ export class DatabaseService {
     this.mockProjects.clear();
     this.mockTables.clear();
     this.mockFields.clear();
+    // relationships intentionally not cleared to allow inspection across sessions in tests
   }
 }
 
