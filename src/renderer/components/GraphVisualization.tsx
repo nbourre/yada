@@ -105,7 +105,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
       void initializeCytoscape();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, settings]);
+  }, [graphData]);
 
   const loadGraphData = async () => {
     if (!projectId) return;
@@ -148,9 +148,13 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
     // Dynamically import Cytoscape
     const cytoscape = (await import('cytoscape')).default;
 
-    // Clear previous instance
+    // Stop any running layout and destroy previous instance
     if (cyRef.current) {
+      try {
+        cyRef.current.stop(); // stop animations/layouts
+      } catch (_) { /* ignore */ }
       cyRef.current.destroy();
+      cyRef.current = null;
     }
 
     // Filter data based on settings
@@ -270,10 +274,14 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
   };
 
   const handleLayoutChange = (layout: string) => {
-    setSettings({ ...settings, layout });
     if (cyRef.current) {
-      cyRef.current.layout({ name: layout, animate: true, fit: true } as any).run();
+      try {
+        cyRef.current.stop(); // stop current animation first
+        cyRef.current.layout({ name: layout, animate: false, fit: true } as any).run();
+      } catch (_) { /* ignore */ }
     }
+    // Update settings without triggering full re-init (layout already applied above)
+    setSettings(prev => ({ ...prev, layout }));
   };
 
   const exportGraph = async (format: 'png' | 'jpg' | 'svg') => {
