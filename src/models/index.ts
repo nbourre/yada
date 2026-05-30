@@ -207,6 +207,44 @@ export interface Privilege extends BaseEntity {
 export type DataAccessLevel = 'all' | 'view_only' | 'data_entry_only' | 'none' | 'custom';
 export type DesignAccessLevel = 'all' | 'modify_only' | 'view_only' | 'none';
 
+// Solution — regroupe plusieurs fichiers .fmp12 d'une même solution FileMaker
+export interface SolutionFileStats {
+  baseTableCount: number;
+  tableCount: number;
+  relationshipCount: number;
+  layoutCount: number;
+  scriptCount: number;
+  valueListCount: number;
+  customFunctionCount: number;
+  accountCount: number;
+  privilegeCount: number;
+  extendedPrivilegeCount: number;
+  fileReferenceCount: number;
+  customMenuSetCount: number;
+  customMenuCount: number;
+}
+
+export interface SolutionFile {
+  name: string;          // ex: "Gestionnaire iPlus.fmp12"
+  link: string;          // chemin relatif vers le .xml DDR
+  serverPath: string;    // ex: "100.90.20.68"
+  stats: SolutionFileStats;
+  projectId?: string;    // rempli après parsing du DDR
+  parseStatus?: 'pending' | 'parsing' | 'ready' | 'error';
+  parseError?: string;
+}
+
+export interface Solution {
+  id: string;
+  name: string;
+  fileMakerVersion: string;
+  creationDate: string;
+  creationTime: string;
+  summaryPath: string;
+  files: SolutionFile[];
+  parsedAt?: Date;
+}
+
 // Search and Analysis Types
 export interface SearchQuery {
   projectId: string;

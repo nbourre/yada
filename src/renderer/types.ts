@@ -14,6 +14,8 @@ interface ElectronAPI {
 
   // File parsing
   parseFile: (filePath: string) => Promise<any>;
+  parseSolution: (summaryPath: string) => Promise<any>;
+  isSummaryFile: (base64Content: string) => Promise<boolean>;
   writeTempFile: (fileName: string, content: string) => Promise<string>;
 
   // Export operations

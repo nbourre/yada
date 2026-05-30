@@ -38,19 +38,30 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
   const [error, setError] = useState<string | null>(null);
 
   const validateFile = (file: File): string | null => {
-    // Check file extension
     if (!file.name.toLowerCase().endsWith('.xml')) {
-      return 'Please select an XML file';
+      return 'Veuillez sélectionner un fichier XML';
     }
-
-    // Check file size (max 100MB)
     const maxSize = 100 * 1024 * 1024; // 100MB
     if (file.size > maxSize) {
-      return 'File size must be less than 100MB';
+      return 'La taille du fichier doit être inférieure à 100MB';
     }
-
     return null;
   };
+
+  /** Lit un File en ArrayBuffer et retourne le base64 correspondant */
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const ab = e.target?.result as ArrayBuffer;
+        const bytes = new Uint8Array(ab);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        res(btoa(binary));
+      };
+      reader.onerror = () => rej(new Error(`Impossible de lire ${file.name}`));
+      reader.readAsArrayBuffer(file);
+    });
 
   const handleFileSelect = useCallback(
     (files: FileList | null) => {
@@ -112,54 +123,42 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
 
   const uploadFile = async (uploadedFile: UploadedFile) => {
     try {
-      // If electron API is available, use it to save and parse the file
       if (window.electronAPI) {
-        // Read file as binary (ArrayBuffer) to preserve encoding (UTF-16 LE BOM, etc.)
-        const reader = new FileReader();
-        reader.onload = async e => {
-          try {
-            const arrayBuffer = e.target?.result as ArrayBuffer;
-            // Convert to base64 to safely transfer binary data through IPC
-            const bytes = new Uint8Array(arrayBuffer);
-            let binary = '';
-            for (let i = 0; i < bytes.byteLength; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            const base64 = btoa(binary);
+        // In Electron, File objects expose the real disk path via .path
+        const originalPath: string | undefined = (uploadedFile.file as any).path;
 
-            // Write binary content to a temp file via Electron API
-            const tempPath = await window.electronAPI.writeTempFile(
-              `temp_${Date.now()}_${uploadedFile.file.name}`,
-              base64
-            );
+        // Read as binary to detect Summary and for DDR temp-file transfer
+        const base64 = await readFileAsBase64(uploadedFile.file);
+        const isSummary = await window.electronAPI.isSummaryFile(base64);
 
-            console.log('Temp file written:', tempPath);
-
-            // Call the electron API to parse the file
-            const result = await window.electronAPI.parseFile(tempPath);
-            console.log('Parse result:', result);
-
-            // Remove uploaded file from the list after successful parsing starts
-            setSelectedFiles(selectedFiles.filter(f => f.id !== uploadedFile.id));
-          } catch (error) {
-            console.error('Parse error:', error);
-            setError(`Failed to parse ${uploadedFile.file.name}: ${error}`);
+        if (isSummary) {
+          // For Summary.xml we MUST use the original path so relative links resolve correctly
+          if (!originalPath) {
+            setError('Could not determine file path. Please use the Browse button instead of drag & drop.');
+            return;
           }
-        };
+          console.log('Detected Summary.xml — launching full solution parse:', originalPath);
+          const solution = await window.electronAPI.parseSolution(originalPath);
+          console.log('Solution parsed:', solution);
+        } else {
+          // For individual DDR files, write to temp (server needs access)
+          const tempPath = await window.electronAPI.writeTempFile(
+            `temp_${Date.now()}_${uploadedFile.file.name}`,
+            base64
+          );
+          console.log('Temp file written:', tempPath);
+          const result = await window.electronAPI.parseFile(tempPath);
+          console.log('Parse result:', result);
+        }
 
-        reader.onerror = () => {
-          setError(`Failed to read file: ${uploadedFile.file.name}`);
-        };
-
-        reader.readAsArrayBuffer(uploadedFile.file);
+        setSelectedFiles(prev => prev.filter(f => f.id !== uploadedFile.id));
       } else {
-        // Fallback to direct file upload
         await onFileUpload(uploadedFile.file);
-        setSelectedFiles(selectedFiles.filter(f => f.id !== uploadedFile.id));
+        setSelectedFiles(prev => prev.filter(f => f.id !== uploadedFile.id));
       }
     } catch (error) {
       console.error('Upload error:', error);
-      setError(`Upload failed: ${error}`);
+      setError(`Upload failed for ${uploadedFile.file.name}: ${error}`);
     }
   };
 
@@ -179,11 +178,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
   return (
     <Box>
       <Typography variant="h5" gutterBottom>
-        Upload FileMaker DDR Files
+        Importer des fichiers DDR FileMaker
       </Typography>
 
       <Typography variant="body1" color="textSecondary" sx={{ mb: 3 }}>
-        Upload FileMaker Database Design Report (DDR) XML files to analyze your database structure.
+        Importez un <strong>Summary.xml</strong> pour analyser toute la solution d'un coup,
+        ou un fichier DDR individuel (<strong>.xml</strong>).
       </Typography>
 
       {/* Drag & Drop Area */}
@@ -218,10 +218,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
               }}
             />
             <Typography variant="h6" gutterBottom>
-              {dragOver ? 'Drop files here' : 'Drag & drop XML files here'}
+              {dragOver ? 'Déposer ici' : 'Glisser-déposer un fichier XML ici'}
             </Typography>
             <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-              or click to browse files
+              Summary.xml (solution complète) ou fichier DDR individuel — ou cliquer pour parcourir
             </Typography>
             <Button
               variant="outlined"
@@ -326,16 +326,19 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
           </Typography>
           <List dense>
             <ListItem>
-              <ListItemText primary="• XML files only (.xml extension)" />
+              <ListItemText primary="• Summary.xml — importe tous les fichiers de la solution en une seule opération" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Maximum file size: 100MB" />
+              <ListItemText primary="• Fichier DDR individuel (.xml) — importe un seul fichier .fmp12" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Generated by FileMaker Pro's Database Design Report (DDR)" />
+              <ListItemText primary="• Taille maximale : 100MB par fichier" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Files should contain complete database schema information" />
+              <ListItemText primary="• Généré via FileMaker Pro : Fichier > Gérer > Base de données > DDR" />
+            </ListItem>
+            <ListItem>
+              <ListItemText primary="• Encodages supportés : UTF-16 LE (par défaut FileMaker) et UTF-8" />
             </ListItem>
           </List>
         </CardContent>

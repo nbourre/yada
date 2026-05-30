@@ -76,26 +76,20 @@
 
 ### Tâches
 
-- [ ] T020 [P] Parser `Summary.xml` : extraire la liste des fichiers et leurs stats agrégées
-  - Fichier : `src/services/summary-parser.service.ts`
-  - Entrée : chemin vers `Summary.xml`
-  - Sortie : `{ solution: { name, version, date }, files: [{ name, link, path, stats }] }`
+- [x] T020 [P] Parser `Summary.xml` : extraire la liste des fichiers et leurs stats agrégées
+  - Fichier : `src/services/summary-parser.service.ts` ✅
+  - Sortie : objet `Solution` avec `files: SolutionFile[]` et stats par fichier
 
-- [ ] T021 [P] Modèle `Solution` : regrouper plusieurs `Project` sous une même solution
-  - Fichier : `src/models/index.ts`
-  - Champs : `id`, `name`, `version`, `fileMakerVersion`, `createdAt`, `files: Project[]`
+- [x] T021 [P] Modèle `Solution` + `SolutionFile` + `SolutionFileStats`
+  - Fichier : `src/models/index.ts` ✅
 
-- [ ] T022 Upload de `Summary.xml` comme point d'entrée d'import de solution complète
-  - Fichier : `src/renderer/components/FileUpload.tsx`
-  - Détecter si le fichier uploadé est un Summary (`type="Summary"` dans `<FMPReport>`)
-  - Résoudre les chemins `link` relatifs au dossier du Summary
-  - Lancer le parsing de chaque fichier DDR lié
+- [x] T022 Upload de `Summary.xml` comme point d'entrée d'import de solution complète
+  - Fichier : `src/renderer/components/FileUpload.tsx` ✅
+  - Détection via `isSummaryFile` (IPC) → route vers `parseSolution` ou `parseFile`
 
-- [ ] T023 IPC handler `parse-solution` dans le main process
-  - Fichier : `src/main/index.ts`
-  - Paramètre : chemin du `Summary.xml`
-  - Lit le Summary, résout les chemins `link`, parse chaque `.xml` séquentiellement
-  - Retourne un objet `Solution` avec tous les `Project` parsés
+- [x] T023 IPC handlers `parse-solution` + `is-summary-file` dans le main process
+  - Fichier : `src/main/index.ts` + `src/main/preload.ts` ✅
+  - Parse séquentiel de chaque DDR, events `solution-discovered` / `solution-file-status` / `solution-parsed`
 
 - [ ] T024 Vue "Solution" dans le Dashboard
   - Afficher les stats agrégées de tous les fichiers de la solution

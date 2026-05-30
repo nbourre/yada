@@ -10,6 +10,7 @@ import { createReadStream, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
+import { summaryParserService } from '../services/summary-parser.service';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -353,6 +354,112 @@ function setupIPC(): void {
       return tempPath;
     } catch (error) {
       console.error('Main: Error writing temp file:', error);
+      throw error;
+    }
+  });
+
+  // Détecte si un contenu base64 est un Summary.xml
+  ipcMain.handle('is-summary-file', async (_event, base64Content: string) => {
+    return summaryParserService.isSummaryContent(base64Content);
+  });
+
+  // Parse une solution complète à partir d'un Summary.xml
+  ipcMain.handle('parse-solution', async (_event, summaryPath: string) => {
+    try {
+      console.log('Main: Parsing solution summary:', summaryPath);
+
+      // 1. Parser le Summary.xml pour découvrir les fichiers
+      const solution = await summaryParserService.parseSummary(summaryPath);
+      console.log(`Main: Solution "${solution.name}" — ${solution.files.length} fichier(s) trouvé(s)`);
+
+      // 2. Notifier le renderer que la solution est découverte
+      if (mainWindow) {
+        mainWindow.webContents.send('solution-discovered', solution);
+      }
+
+      // 3. Parser chaque fichier DDR séquentiellement
+      const results = [];
+      for (let i = 0; i < solution.files.length; i++) {
+        const file = solution.files[i];
+        console.log(`Main: Parsing file ${i + 1}/${solution.files.length}: ${file.name}`);
+
+        if (mainWindow) {
+          mainWindow.webContents.send(
+            'parse-progress',
+            Math.round((i / solution.files.length) * 100),
+            `Parsing ${file.name}...`
+          );
+          mainWindow.webContents.send('solution-file-status', {
+            solutionId: solution.id,
+            fileName: file.name,
+            status: 'parsing',
+          });
+        }
+
+        try {
+          const form = new FormData();
+          form.append('file', createReadStream(file.link));
+
+          const response = await fetch(`http://localhost:${PORT}/api/parse`, {
+            method: 'POST',
+            body: form as any,
+          });
+
+          if (!response.ok) {
+            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+          }
+
+          const result = await response.json() as any;
+          const parseResult = result.data || result;
+          const project = parseResult.project || parseResult;
+
+          // Associer le projectId au fichier de la solution
+          solution.files[i].projectId = project.id;
+          solution.files[i].parseStatus = 'ready';
+
+          if (mainWindow) {
+            mainWindow.webContents.send('project-parsed', project);
+            mainWindow.webContents.send('solution-file-status', {
+              solutionId: solution.id,
+              fileName: file.name,
+              status: 'ready',
+              projectId: project.id,
+            });
+          }
+
+          results.push({ file: file.name, project });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`Main: Failed to parse ${file.name}:`, msg);
+          solution.files[i].parseStatus = 'error';
+          solution.files[i].parseError = msg;
+
+          if (mainWindow) {
+            mainWindow.webContents.send('solution-file-status', {
+              solutionId: solution.id,
+              fileName: file.name,
+              status: 'error',
+              error: msg,
+            });
+          }
+
+          results.push({ file: file.name, error: msg });
+        }
+      }
+
+      if (mainWindow) {
+        mainWindow.webContents.send('parse-progress', 100, 'Solution parsed');
+        mainWindow.webContents.send('solution-parsed', solution);
+      }
+
+      console.log('Main: Solution parsing complete');
+      return solution;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Main: Solution parse error:', msg);
+      if (mainWindow) {
+        mainWindow.webContents.send('parse-error', msg);
+      }
       throw error;
     }
   });

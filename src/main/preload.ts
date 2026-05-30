@@ -13,6 +13,8 @@ export interface ElectronAPI {
   showItemInFolder: (path: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   parseFile: (filePath: string) => Promise<any>;
+  parseSolution: (summaryPath: string) => Promise<any>;
+  isSummaryFile: (base64Content: string) => Promise<boolean>;
   writeTempFile: (fileName: string, content: string) => Promise<string>;
 
   // App info
@@ -42,6 +44,8 @@ const electronAPI: ElectronAPI = {
   showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   parseFile: (filePath: string) => ipcRenderer.invoke('parse-file', filePath),
+  parseSolution: (summaryPath: string) => ipcRenderer.invoke('parse-solution', summaryPath),
+  isSummaryFile: (base64Content: string) => ipcRenderer.invoke('is-summary-file', base64Content),
   writeTempFile: (fileName: string, content: string) =>
     ipcRenderer.invoke('write-temp-file', fileName, content),
 

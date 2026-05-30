@@ -3,8 +3,8 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "node",
-    "outDir": "../../dist/main",
-    "rootDir": ".",
+    "outDir": "../../dist",
+    "rootDir": "..",
     "strict": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "noEmit": false
   },
-  "include": ["./**/*"],
-  "exclude": ["node_modules"]
+  "include": ["./**/*", "../services/**/*", "../models/**/*", "../shared/**/*"],
+  "exclude": ["node_modules", "**/*.test.*"]
 }
