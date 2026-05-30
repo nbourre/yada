@@ -149,6 +149,25 @@
 
 ---
 
+## Phase 7 — Analyse approfondie FMSaveAsXML 📋 À FAIRE (plus tard)
+
+> Les fichiers DDR exportés via **File > Save a Copy as XML** (FM Pro 19+) ont une structure
+> différente et plus riche que les DDR classiques. Cette phase vise à exploiter pleinement
+> ce format.
+
+- [ ] T060 Inventorier la structure complète de `FMSaveAsXML` vs `FMPReport`
+  - Documenter les balises présentes dans `FMSaveAsXML` mais absentes dans `FMPReport`
+  - Identifier les données supplémentaires disponibles (scripts complets, calculs, etc.)
+
+- [ ] T061 Adapter le parser pour tirer parti des données supplémentaires de `FMSaveAsXML`
+  - Contenu complet des étapes de scripts (pas seulement les noms)
+  - Calculs de champs complets
+  - Définitions de layouts plus détaillées
+
+- [ ] T062 Valider avec des fichiers réels les différences de contenu entre les deux formats
+
+---
+
 ## Backlog / Idées futures 💡
 
 - Support DDR exporté en plusieurs dossiers (solutions avec sous-dossiers)
