@@ -28,6 +28,9 @@ export interface ProjectStatistics {
   scriptCount: number;
   relationshipCount: number;
   customFunctionCount: number;
+  valueListCount?: number;
+  privilegeSetCount?: number;
+  scriptReferenceCount?: number;
   parseTime?: number; // milliseconds
 }
 

@@ -30,6 +30,11 @@ export interface ElectronAPI {
   onError: (callback: (error: string) => void) => void;
   onProjectParsed: (callback: (project: any) => void) => void;
 
+  // Solution events
+  onSolutionDiscovered: (callback: (solution: any) => void) => void;
+  onSolutionFileStatus: (callback: (update: any) => void) => void;
+  onSolutionParsed: (callback: (solution: any) => void) => void;
+
   // Menu events
   onMenuEvent: (callback: (event: string, data?: any) => void) => void;
   removeMenuListeners: () => void;
@@ -61,6 +66,17 @@ const electronAPI: ElectronAPI = {
   },
   onProjectParsed: (callback: (project: any) => void) => {
     ipcRenderer.on('project-parsed', (_, project) => callback(project));
+  },
+
+  // Solution events
+  onSolutionDiscovered: (callback: (solution: any) => void) => {
+    ipcRenderer.on('solution-discovered', (_, solution) => callback(solution));
+  },
+  onSolutionFileStatus: (callback: (update: any) => void) => {
+    ipcRenderer.on('solution-file-status', (_, update) => callback(update));
+  },
+  onSolutionParsed: (callback: (solution: any) => void) => {
+    ipcRenderer.on('solution-parsed', (_, solution) => callback(solution));
   },
 
   // Menu events

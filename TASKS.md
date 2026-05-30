@@ -91,7 +91,7 @@
   - Fichier : `src/main/index.ts` + `src/main/preload.ts` ✅
   - Parse séquentiel de chaque DDR, events `solution-discovered` / `solution-file-status` / `solution-parsed`
 
-- [ ] T024 Vue "Solution" dans le Dashboard
+- [x] T024 Vue "Solution" dans le Dashboard
   - Afficher les stats agrégées de tous les fichiers de la solution
   - Liste des fichiers avec leur statut de parsing individuel
   - Indicateur de progression lors du parsing multi-fichiers
@@ -108,20 +108,21 @@
 > Le parser actuel capture tables, champs, layouts, scripts (noms seulement) et relations.  
 > Ces éléments manquent et sont importants pour l'analyse.
 
-- [ ] T030 Parser les **étapes de scripts** `<StepList><Step>` pour les cross-références
+- [x] T030 Parser les **étapes de scripts** `<StepList><Step>` pour les cross-références
   - Détecter `Perform Script`, `Go to Layout`, `Set Field`, `Execute SQL`
   - Alimenter une table `script_references` en base
 
-- [ ] T031 Parser les **fonctions personnalisées** `<CustomFunctionCatalog>`
-  - Nom, paramètres, calcul, commentaire
+- [x] T031 Parser les **fonctions personnalisées** `<CustomFunctionCatalog>`
+  - Nom, paramètres, calcul, commentaire ✅
 
-- [ ] T032 Parser les **listes de valeurs** `<ValueListCatalog>`
-  - Type (fixe / depuis champ), valeurs, référence champ source
+- [x] T032 Parser les **listes de valeurs** `<ValueListCatalog>`
+  - Type (fixe / depuis champ), valeurs, référence champ source ✅
 
-- [ ] T033 Parser les **références inter-fichiers** `<FileReferences>`
-  - Identifier les scripts qui appellent des fichiers externes
+- [x] T033 Parser les **cross-références scripts→scripts** via `Perform Script` steps
+  - `scriptReferences[]` : `{ callerScriptName, targetScriptName, targetFile }` ✅
 
-- [ ] T034 [P] Parser les **privilèges** `<PrivilegeCatalog>` (optionnel / basse priorité)
+- [x] T034 Parser les **privilege sets** `<PrivilegeCatalog>`
+  - Nom, fullAccess ✅
 
 ---
 

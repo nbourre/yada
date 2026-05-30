@@ -36,7 +36,7 @@ import GraphVisualization from './GraphVisualization';
 import ExportPanel from './ExportPanel';
 
 // Import types from our models
-import { Project } from '../../models';
+import { Project, Solution } from '../../models';
 import '../types';
 
 // Material-UI theme configuration
@@ -97,6 +97,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState(0);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [currentSolution, setCurrentSolution] = useState<Solution | null>(null);
   const [loading, setLoading] = useState(false);
   const [parseProgress, setParseProgress] = useState(0);
   const [parseMessage, setParseMessage] = useState('');
@@ -157,6 +158,41 @@ export default function App() {
       window.electronAPI.onError((error: string) => {
         showNotification(error, 'error');
         setIsParsing(false);
+      });
+
+      // Solution discovered (Summary.xml parsed, DDR files not yet processed)
+      window.electronAPI.onSolutionDiscovered((solution: Solution) => {
+        setCurrentSolution(solution);
+        setIsParsing(true);
+        setParseProgress(0);
+        setParseMessage(`Solution "${solution.name}" found — parsing ${solution.files.length} file(s)...`);
+        showNotification(`Parsing solution: ${solution.name}`, 'info');
+      });
+
+      // Individual file status update during solution parse
+      window.electronAPI.onSolutionFileStatus((update: { solutionId: string; fileName: string; status: string; projectId?: string; error?: string }) => {
+        setCurrentSolution(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            files: prev.files.map(f =>
+              f.name === update.fileName
+                ? { ...f, parseStatus: update.status as any, projectId: update.projectId, parseError: update.error }
+                : f
+            ),
+          };
+        });
+      });
+
+      // Solution fully parsed
+      window.electronAPI.onSolutionParsed((solution: Solution) => {
+        setCurrentSolution(solution);
+        setIsParsing(false);
+        setParseProgress(100);
+        const readyCount = solution.files.filter((f: any) => f.parseStatus === 'ready').length;
+        showNotification(`Solution parsed: ${readyCount}/${solution.files.length} files ready`, 'success');
+        setParseSuccessVisible(true);
+        setCurrentTab(0);
       });
 
       // Project parsed
@@ -297,6 +333,7 @@ export default function App() {
           <ProjectDashboard
             project={currentProject}
             projects={projects}
+            solution={currentSolution}
             onProjectSelect={handleProjectSelect}
             loading={loading}
           />

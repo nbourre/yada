@@ -11,7 +11,9 @@ import {
   Field,
   Layout,
   Script,
+  ScriptStep,
   Relationship,
+  CustomFunction,
   FieldType,
   LayoutType,
   RelationshipType,
@@ -61,10 +63,26 @@ interface DDRLayoutCatalog {
   Layout: DDRLayout | DDRLayout[];
 }
 
+interface DDRScriptStep {
+  '@_id'?: string;
+  '@_name'?: string;
+  '@_enable'?: string;
+  Calculation?: { '#text'?: string } | string;
+  // "Perform Script" target
+  Script?: { '@_name'?: string; '@_id'?: string };
+  FileReference?: { '@_name'?: string };
+  // "Go to Layout"
+  Layout?: { '@_name'?: string };
+  // "Set Field"
+  Field?: { '@_name'?: string; '@_table'?: string } | { '@_name'?: string; '@_table'?: string }[];
+}
+
 interface DDRScript {
   '@_name'?: string;
+  '@_id'?: string;
   '@_comment'?: string;
   Comment?: { '#text'?: string } | string;
+  StepList?: { Step?: DDRScriptStep | DDRScriptStep[] };
 }
 interface DDRScriptCatalog {
   Script: DDRScript | DDRScript[];
@@ -93,6 +111,43 @@ interface DDRRelationshipGraph {
   RelationshipList?: { Relationship: DDRRelationship | DDRRelationship[] };
 }
 
+// Custom Functions
+interface DDRCustomFunction {
+  '@_id'?: string;
+  '@_name'?: string;
+  '@_parameters'?: string;
+  Calculation?: { '#text'?: string } | string;
+  Comment?: { '#text'?: string } | string;
+}
+interface DDRCustomFunctionCatalog {
+  CustomFunction?: DDRCustomFunction | DDRCustomFunction[];
+}
+
+// Value Lists
+interface DDRValueListItem {
+  '#text'?: string;
+}
+interface DDRValueList {
+  '@_id'?: string;
+  '@_name'?: string;
+  '@_source'?: string; // "Custom" | "Field"
+  ValueListItems?: { Value?: DDRValueListItem | DDRValueListItem[] };
+  SourceField?: { '@_table'?: string; '@_field'?: string };
+}
+interface DDRValueListCatalog {
+  ValueList?: DDRValueList | DDRValueList[];
+}
+
+// Privileges
+interface DDRPrivilegeSet {
+  '@_id'?: string;
+  '@_name'?: string;
+  '@_allAccess'?: string;
+}
+interface DDRPrivilegeCatalog {
+  PrivilegeSet?: DDRPrivilegeSet | DDRPrivilegeSet[];
+}
+
 interface DDRFileElement {
   '@_name'?: string;
   '@_path'?: string;
@@ -100,6 +155,9 @@ interface DDRFileElement {
   LayoutCatalog?: DDRLayoutCatalog;
   ScriptCatalog?: DDRScriptCatalog;
   RelationshipGraph?: DDRRelationshipGraph;
+  CustomFunctionCatalog?: DDRCustomFunctionCatalog;
+  ValueListCatalog?: DDRValueListCatalog;
+  PrivilegeCatalog?: DDRPrivilegeCatalog;
 }
 
 export class XMLParserService {
@@ -123,6 +181,11 @@ export class XMLParserService {
   private layouts: Layout[] = [];
   private scripts: Script[] = [];
   private relationships: Relationship[] = [];
+  private customFunctions: CustomFunction[] = [];
+  private valueLists: { id: string; name: string; source: string; items: string[]; sourceTable?: string; sourceField?: string }[] = [];
+  private privilegeSets: { id: string; name: string; fullAccess: boolean }[] = [];
+  // Cross-references: script → script calls
+  private scriptReferences: { callerScriptName: string; targetScriptName: string; targetFile?: string }[] = [];
 
   // Statistics counters
   private stats: ProjectStatistics = {
@@ -133,6 +196,9 @@ export class XMLParserService {
     scriptCount: 0,
     relationshipCount: 0,
     customFunctionCount: 0,
+    valueListCount: 0,
+    privilegeSetCount: 0,
+    scriptReferenceCount: 0,
   };
 
   async parseFile(filePath: string): Promise<ParseResult> {
@@ -306,6 +372,24 @@ export class XMLParserService {
     if (fileElement.RelationshipGraph) {
       this.processRelationshipGraph(fileElement.RelationshipGraph);
     }
+
+    // Process CustomFunctionCatalog
+    if (fileElement.CustomFunctionCatalog) {
+      this.processCustomFunctionCatalog(fileElement.CustomFunctionCatalog);
+    }
+
+    // Process ValueListCatalog
+    if (fileElement.ValueListCatalog) {
+      this.processValueListCatalog(fileElement.ValueListCatalog);
+    }
+
+    // Process PrivilegeCatalog
+    if (fileElement.PrivilegeCatalog) {
+      this.processPrivilegeCatalog(fileElement.PrivilegeCatalog);
+    }
+
+    // Extract script cross-references after all scripts are parsed
+    this.extractScriptReferences();
   }
 
   private processBaseTableCatalog(catalog: DDRBaseTableCatalog): void {
@@ -397,11 +481,13 @@ export class XMLParserService {
     const scriptArray = Array.isArray(scripts) ? scripts : [scripts];
 
     scriptArray.forEach((scriptData: DDRScript) => {
+      const steps = this.parseScriptSteps(scriptData);
+
       const script: Script = {
         id: this.generateId(),
         projectId: this.currentProject.id!,
         name: scriptData['@_name'] || 'Unnamed Script',
-        steps: [],
+        steps,
         comment:
           scriptData['@_comment'] ||
           (typeof scriptData.Comment === 'object'
@@ -414,6 +500,63 @@ export class XMLParserService {
     });
 
     console.log(`Parser: Processed ${scriptArray.length} scripts`);
+  }
+
+  private parseScriptSteps(scriptData: DDRScript): ScriptStep[] {
+    const rawSteps = scriptData.StepList?.Step;
+    if (!rawSteps) return [];
+
+    const stepArray = Array.isArray(rawSteps) ? rawSteps : [rawSteps];
+    const steps: ScriptStep[] = [];
+
+    for (const s of stepArray) {
+      const stepName = s['@_name'] || '';
+      const enabled  = s['@_enable'] !== 'False';
+
+      const step: ScriptStep = {
+        step: stepName,
+        enabled,
+        options: {},
+      };
+
+      // Extract step-specific data
+      switch (stepName) {
+        case 'Perform Script':
+        case 'Perform Script on Server': {
+          const targetScript = s.Script?.['@_name'] || '';
+          const targetFile   = s.FileReference?.['@_name'] || '';
+          step.options = { targetScript, targetFile };
+          break;
+        }
+        case 'Go to Layout': {
+          step.options = { targetLayout: s.Layout?.['@_name'] || '' };
+          break;
+        }
+        case 'Set Field':
+        case 'Set Field By Name': {
+          const field = Array.isArray(s.Field) ? s.Field[0] : s.Field;
+          step.options = {
+            targetField: field?.['@_name'] || '',
+            targetTable: field?.['@_table'] || '',
+          };
+          break;
+        }
+        case 'If':
+        case 'Else If':
+        case 'Exit Script':
+        case 'Halt Script': {
+          const calc = s.Calculation;
+          step.options = {
+            calculation: typeof calc === 'object' ? calc?.['#text'] || '' : calc || '',
+          };
+          break;
+        }
+      }
+
+      steps.push(step);
+    }
+
+    return steps;
   }
 
   private processRelationshipGraph(graph: DDRRelationshipGraph): void {
@@ -668,6 +811,109 @@ export class XMLParserService {
     }
   }
 
+  // ─── Custom Functions ─────────────────────────────────────────────────────
+
+  private processCustomFunctionCatalog(catalog: DDRCustomFunctionCatalog): void {
+    const items = catalog.CustomFunction;
+    if (!items) return;
+    const arr = Array.isArray(items) ? items : [items];
+
+    arr.forEach((cf: DDRCustomFunction) => {
+      const fn: CustomFunction = {
+        id: cf['@_id'] || this.generateId(),
+        projectId: this.currentProject.id!,
+        name: cf['@_name'] || 'Unnamed Function',
+        parameters: (cf['@_parameters'] || '')
+          .split(',')
+          .map(p => p.trim())
+          .filter(Boolean)
+          .map(p => ({ name: p })),
+        calculation:
+          typeof cf.Calculation === 'object'
+            ? cf.Calculation?.['#text'] || ''
+            : cf.Calculation || '',
+        comment:
+          typeof cf.Comment === 'object'
+            ? cf.Comment?.['#text']
+            : cf.Comment,
+      };
+      this.customFunctions.push(fn);
+      this.stats.customFunctionCount++;
+    });
+
+    console.log(`Parser: Processed ${arr.length} custom functions`);
+  }
+
+  // ─── Value Lists ──────────────────────────────────────────────────────────
+
+  private processValueListCatalog(catalog: DDRValueListCatalog): void {
+    const items = catalog.ValueList;
+    if (!items) return;
+    const arr = Array.isArray(items) ? items : [items];
+
+    arr.forEach((vl: DDRValueList) => {
+      const rawValues = vl.ValueListItems?.Value;
+      const values: string[] = rawValues
+        ? (Array.isArray(rawValues) ? rawValues : [rawValues])
+            .map(v => v['#text'] || '')
+            .filter(Boolean)
+        : [];
+
+      this.valueLists.push({
+        id: vl['@_id'] || this.generateId(),
+        name: vl['@_name'] || 'Unnamed Value List',
+        source: vl['@_source'] || 'Custom',
+        items: values,
+        sourceTable: vl.SourceField?.['@_table'],
+        sourceField: vl.SourceField?.['@_field'],
+      });
+      this.stats.valueListCount = (this.stats.valueListCount || 0) + 1;
+    });
+
+    console.log(`Parser: Processed ${arr.length} value lists`);
+  }
+
+  // ─── Privileges ───────────────────────────────────────────────────────────
+
+  private processPrivilegeCatalog(catalog: DDRPrivilegeCatalog): void {
+    const items = catalog.PrivilegeSet;
+    if (!items) return;
+    const arr = Array.isArray(items) ? items : [items];
+
+    arr.forEach((ps: DDRPrivilegeSet) => {
+      this.privilegeSets.push({
+        id: ps['@_id'] || this.generateId(),
+        name: ps['@_name'] || 'Unnamed Privilege Set',
+        fullAccess: ps['@_allAccess'] === 'True',
+      });
+      this.stats.privilegeSetCount = (this.stats.privilegeSetCount || 0) + 1;
+    });
+
+    console.log(`Parser: Processed ${arr.length} privilege sets`);
+  }
+
+  // ─── Script Cross-References ──────────────────────────────────────────────
+
+  private extractScriptReferences(): void {
+    for (const script of this.scripts) {
+      for (const step of script.steps) {
+        if (
+          (step.step === 'Perform Script' || step.step === 'Perform Script on Server') &&
+          step.options?.targetScript
+        ) {
+          this.scriptReferences.push({
+            callerScriptName: script.name,
+            targetScriptName: step.options.targetScript as string,
+            targetFile: step.options.targetFile as string | undefined,
+          });
+          this.stats.scriptReferenceCount = (this.stats.scriptReferenceCount || 0) + 1;
+        }
+      }
+    }
+
+    console.log(`Parser: Extracted ${this.scriptReferences.length} script cross-references`);
+  }
+
   private mapFieldType(type: string): FieldType {
     const typeMap: Record<string, FieldType> = {
       text: 'text',
@@ -725,6 +971,10 @@ export class XMLParserService {
     this.layouts = [];
     this.scripts = [];
     this.relationships = [];
+    this.customFunctions = [];
+    this.valueLists = [];
+    this.privilegeSets = [];
+    this.scriptReferences = [];
 
     this.stats = {
       tableCount: 0,
@@ -734,6 +984,9 @@ export class XMLParserService {
       scriptCount: 0,
       relationshipCount: 0,
       customFunctionCount: 0,
+      valueListCount: 0,
+      privilegeSetCount: 0,
+      scriptReferenceCount: 0,
     };
   }
 
@@ -753,11 +1006,13 @@ export class XMLParserService {
         await databaseService.createField(field);
       }
 
-      // TODO: Implement createLayout, createScript, createRelationship in database service
-      // For now, we'll just collect the data
+      // TODO: persist layouts, scripts, relationships, custom functions, value lists, privileges to DB
       console.log(`Parsed ${this.layouts.length} layouts`);
-      console.log(`Parsed ${this.scripts.length} scripts`);
+      console.log(`Parsed ${this.scripts.length} scripts (${this.scriptReferences.length} cross-references)`);
       console.log(`Parsed ${this.relationships.length} relationships`);
+      console.log(`Parsed ${this.customFunctions.length} custom functions`);
+      console.log(`Parsed ${this.valueLists.length} value lists`);
+      console.log(`Parsed ${this.privilegeSets.length} privilege sets`);
     } catch (error) {
       this.errors.push(`Failed to save parsed data to database: ${error}`);
     }

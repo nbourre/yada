@@ -33,6 +33,9 @@ interface ElectronAPI {
   onProgress: (callback: (progress: number, message: string) => void) => void;
   onError: (callback: (error: string) => void) => void;
   onProjectParsed: (callback: (project: any) => void) => void;
+  onSolutionDiscovered: (callback: (solution: any) => void) => void;
+  onSolutionFileStatus: (callback: (update: any) => void) => void;
+  onSolutionParsed: (callback: (solution: any) => void) => void;
 
   // Remove listeners
   removeAllListeners: (channel: string) => void;

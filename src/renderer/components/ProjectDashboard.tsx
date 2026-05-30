@@ -18,20 +18,23 @@ import {
   CircularProgress,
   // Removed unused UI imports (Paper, Divider, Button, Dialog components, TextField)
 } from '@mui/material';
-import { TableChart, ViewColumn, Web, Code, AccountTree, Functions } from '@mui/icons-material';
+import { TableChart, ViewColumn, Web, Code, AccountTree, Functions, FolderSpecial, CheckCircle, Error as ErrorIcon, HourglassEmpty } from '@mui/icons-material';
+import LinearProgress from '@mui/material/LinearProgress';
 
-import { Project } from '../../models';
+import { Project, Solution } from '../../models';
 
 interface ProjectDashboardProps {
   project: Project | null;
   projects: Project[];
+  solution: Solution | null;
   onProjectSelect: (project: Project) => void;
   loading: boolean;
 }
 
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   project,
-  projects = [], // Default to empty array if undefined
+  projects = [],
+  solution,
   onProjectSelect,
   loading,
 }) => {
@@ -82,8 +85,92 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   };
 
+  const fileStatusIcon = (status?: string) => {
+    switch (status) {
+      case 'ready':    return <CheckCircle sx={{ color: 'success.main', fontSize: 18 }} />;
+      case 'error':    return <ErrorIcon sx={{ color: 'error.main', fontSize: 18 }} />;
+      case 'parsing':  return <HourglassEmpty sx={{ color: 'warning.main', fontSize: 18 }} />;
+      default:         return <HourglassEmpty sx={{ color: 'text.disabled', fontSize: 18 }} />;
+    }
+  };
+
+  const solutionTotals = solution
+    ? solution.files.reduce(
+        (acc, f) => ({
+          baseTables:     acc.baseTables     + f.stats.baseTableCount,
+          tables:         acc.tables         + f.stats.tableCount,
+          relationships:  acc.relationships  + f.stats.relationshipCount,
+          layouts:        acc.layouts        + f.stats.layoutCount,
+          scripts:        acc.scripts        + f.stats.scriptCount,
+          customFunctions:acc.customFunctions+ f.stats.customFunctionCount,
+          valueLists:     acc.valueLists     + f.stats.valueListCount,
+        }),
+        { baseTables: 0, tables: 0, relationships: 0, layouts: 0, scripts: 0, customFunctions: 0, valueLists: 0 }
+      )
+    : null;
+
+  const parsedCount  = solution?.files.filter(f => f.parseStatus === 'ready').length  ?? 0;
+  const pendingCount = solution?.files.filter(f => f.parseStatus !== 'ready' && f.parseStatus !== 'error').length ?? 0;
+
   return (
     <Grid container spacing={3}>
+      {/* Solution Overview */}
+      {solution && (
+        <Grid item xs={12}>
+          <Card sx={{ mb: 1, borderLeft: 4, borderColor: 'primary.main' }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" gap={1} mb={1}>
+                <FolderSpecial color="primary" />
+                <Typography variant="h6">{solution.name}</Typography>
+                <Chip label={`FM ${solution.fileMakerVersion}`} size="small" variant="outlined" sx={{ ml: 1 }} />
+                <Chip
+                  label={`${parsedCount}/${solution.files.length} files ready`}
+                  size="small"
+                  color={parsedCount === solution.files.length ? 'success' : pendingCount > 0 ? 'warning' : 'error'}
+                  sx={{ ml: 0.5 }}
+                />
+              </Box>
+
+              {/* Per-file status */}
+              <Box display="flex" flexWrap="wrap" gap={1} mb={2}>
+                {solution.files.map(f => (
+                  <Box key={f.name} display="flex" alignItems="center" gap={0.5}
+                    sx={{ bgcolor: 'action.hover', borderRadius: 1, px: 1, py: 0.5 }}>
+                    {fileStatusIcon(f.parseStatus)}
+                    <Typography variant="caption">{f.name}</Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              {/* Progress bar while parsing */}
+              {pendingCount > 0 && (
+                <LinearProgress variant="determinate" value={(parsedCount / solution.files.length) * 100} sx={{ mb: 1 }} />
+              )}
+
+              {/* Aggregate stats */}
+              {solutionTotals && (
+                <Box display="flex" flexWrap="wrap" gap={2} mt={1}>
+                  {[
+                    { label: 'Base Tables', value: solutionTotals.baseTables },
+                    { label: 'Table Occurrences', value: solutionTotals.tables },
+                    { label: 'Relationships', value: solutionTotals.relationships },
+                    { label: 'Layouts', value: solutionTotals.layouts },
+                    { label: 'Scripts', value: solutionTotals.scripts },
+                    { label: 'Custom Functions', value: solutionTotals.customFunctions },
+                    { label: 'Value Lists', value: solutionTotals.valueLists },
+                  ].map(s => (
+                    <Box key={s.label} textAlign="center" sx={{ minWidth: 80 }}>
+                      <Typography variant="h6" color="primary">{s.value}</Typography>
+                      <Typography variant="caption" color="textSecondary">{s.label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      )}
+
       {/* Project List */}
       <Grid xs={12} md={4}>
         <Card>
