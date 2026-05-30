@@ -156,13 +156,24 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
         matches?: string[];
       };
 
+      const matchToString = (m: unknown): string => {
+        if (typeof m === 'string') return m;
+        if (m && typeof m === 'object') {
+          const o = m as Record<string, unknown>;
+          // Backend match object: { field, value, startIndex, endIndex, context }
+          if (o.value !== undefined) return String(o.value);
+          if (o.context !== undefined) return String(o.context);
+        }
+        return String(m);
+      };
+
       const mapped: SearchResult[] = backendResults.map((r: BackendResult) => ({
         id: r.entityId || r.id || `${r.entityType || 'unknown'}-${r.entityName || 'result'}`,
         type: (r.entityType || r.type || 'table') as SearchResult['type'],
         name: r.entityName || r.name || '(unnamed)',
-        context: r.context || '',
+        context: typeof r.context === 'string' ? r.context : '',
         description: r.description || undefined,
-        matches: Array.isArray(r.matches) ? r.matches : [],
+        matches: Array.isArray(r.matches) ? r.matches.map(matchToString) : [],
       }));
 
       setResults(mapped);
