@@ -244,19 +244,33 @@
 
 - [ ] T090 Mapper les types de champs FileMaker → SQL
   - Fichier : `src/services/sql-export.service.ts`
-  - Mapping : `Text→VARCHAR`, `Number→DECIMAL`, `Date→DATE`, `Time→TIME`, `Timestamp→DATETIME`, `Container→BYTEA/LONGBLOB`, `Calculation→(généré/commenté)`, `Summary→(vue/commenté)`
+  - Mapping : `Text→VARCHAR`, `Number→DECIMAL`, `Date→DATE`, `Time→TIME`, `Timestamp→DATETIME`, `Calculation→(généré/commenté)`, `Summary→(vue/commenté)`
+  - **Container** — selon le dialecte et la stratégie choisie :
+    - `PostgreSQL` → `BYTEA` (binaire inline) ou `OID`/`lo` (large object) pour les gros fichiers
+    - `MySQL` → `LONGBLOB` (binaire inline) ou référence externe
+    - `PostgreSQL` supporte aussi les extensions : `pg_largeobject` pour streaming, ou stocker uniquement le chemin (`TEXT`) si les fichiers sont externalisés (FM peut stocker les conteneurs par référence)
+    - Option dans T094 : "Store binary inline" vs "Store as file path reference"
+    - Note : FileMaker stocke parfois les conteneurs **par référence** (chemin fichier) — dans ce cas un `VARCHAR(512)` suffit
   - Configurable : longueur VARCHAR par défaut, dialecte MySQL vs PostgreSQL
 
 - [ ] T091 Export SQL d'une seule table de base
   - Génère `CREATE TABLE` avec colonnes, types, contraintes `NOT NULL` si requis
   - Inclut les commentaires de champs comme `COMMENT ON COLUMN`
-  - Identifie la clé primaire probable (champ nommé `id_*`, `pk_*`, ou champ serial)
+  - Identifie la clé primaire via les relations : un champ utilisé comme **côté gauche de plusieurs relations** (`LeftField`) est très probablement une PK
+  - Fallback : convention de nommage (`id_*`, `pk_*`, champ serial) si aucune relation ne la désigne clairement
+  - Heuristique : champ utilisé dans le plus grand nombre de `JoinPredicate` à travers toute la solution = PK probable
 
 - [ ] T092 Résolution des relations inter-TOs → Foreign Keys
   - Déduplique les TOs vers leurs tables de base
   - Génère `FOREIGN KEY` entre tables de base à partir des `JoinPredicate`
   - Gère les relations multi-prédicats (clés composites)
   - Signale les relations inter-fichiers (cross-schema)
+  - **Détection et décomposition des relations many-to-many** :
+    - FileMaker permet les relations M-N directes (ex: `Projets ←→ Employés`)
+    - En SQL, une M-N doit être décomposée en table de jonction : `Projets_Employés (id_projet FK, id_employe FK)`
+    - Détecter : si un champ est à la fois `LeftField` dans certaines relations ET `RightField` dans d'autres → table de jonction potentielle
+    - Générer automatiquement la table de jonction avec les deux FK + PK composite
+    - Inclure dans le rapport de migration (T095) avec suggestion du nom de la table de jonction
 
 - [ ] T093 Export SQL d'une solution complète (multi-fichiers)
   - Génère un script SQL complet : toutes les tables + toutes les FK
@@ -279,6 +293,10 @@
 ---
 
 ## Backlog / Idées futures 💡
+
+- 🌟 **Wishlist lointaine** — Générer un prototype d'app web CRUD depuis le DDR : reproduire partiellement l'UI FileMaker en web (structure des tables, relations, layouts basiques, listes de valeurs, navigation scripts→layouts). Limites connues : pas de coordonnées x/y des champs, pas de styles visuels, pas de données. Faisable comme outil de prototypage / aide à la migration.
+
+
 
 - Support DDR exporté en plusieurs dossiers (solutions avec sous-dossiers)
 - Mode comparaison de snapshots (diff entre 2 DDR de dates différentes)
