@@ -226,6 +226,58 @@
 
 ---
 
+## Phase 10 — Export SQL (MySQL / PostgreSQL) 💡 À FAIRE (plus tard)
+
+### User Story
+> *En tant que développeur FileMaker, je veux pouvoir exporter une table ou une solution complète
+> en SQL (MySQL ou PostgreSQL), en tenant compte des liaisons entre tables à travers les fichiers
+> de la solution, afin de faciliter une migration ou une analyse externe.*
+
+### Défis spécifiques FileMaker → SQL
+- FileMaker utilise des **Table Occurrences (TOs)** : plusieurs TOs peuvent pointer vers la même table de base → il faut dédupliquer
+- Les **relations** FileMaker sont entre TOs, pas entre tables de base → résolution nécessaire
+- Les types de champs FileMaker n'ont pas d'équivalent direct SQL (ex: `Container`, `Calculation`, `Summary`)
+- Les **clés primaires** ne sont pas toujours explicites dans le DDR
+- Les relations **inter-fichiers** (entre deux `.fmp12`) deviennent des foreign keys cross-schema
+
+### Tâches
+
+- [ ] T090 Mapper les types de champs FileMaker → SQL
+  - Fichier : `src/services/sql-export.service.ts`
+  - Mapping : `Text→VARCHAR`, `Number→DECIMAL`, `Date→DATE`, `Time→TIME`, `Timestamp→DATETIME`, `Container→BYTEA/LONGBLOB`, `Calculation→(généré/commenté)`, `Summary→(vue/commenté)`
+  - Configurable : longueur VARCHAR par défaut, dialecte MySQL vs PostgreSQL
+
+- [ ] T091 Export SQL d'une seule table de base
+  - Génère `CREATE TABLE` avec colonnes, types, contraintes `NOT NULL` si requis
+  - Inclut les commentaires de champs comme `COMMENT ON COLUMN`
+  - Identifie la clé primaire probable (champ nommé `id_*`, `pk_*`, ou champ serial)
+
+- [ ] T092 Résolution des relations inter-TOs → Foreign Keys
+  - Déduplique les TOs vers leurs tables de base
+  - Génère `FOREIGN KEY` entre tables de base à partir des `JoinPredicate`
+  - Gère les relations multi-prédicats (clés composites)
+  - Signale les relations inter-fichiers (cross-schema)
+
+- [ ] T093 Export SQL d'une solution complète (multi-fichiers)
+  - Génère un script SQL complet : toutes les tables + toutes les FK
+  - Dialectes : MySQL (`ENGINE=InnoDB`) et PostgreSQL
+  - Option : un fichier par table de base, ou un seul script
+  - Inclut un header avec métadonnées (source FM, date export, version)
+
+- [ ] T094 UI — panneau d'export SQL
+  - Sélection : table individuelle ou solution complète
+  - Choix du dialecte : MySQL / PostgreSQL
+  - Options avancées : inclure commentaires, inclure indexes, longueur VARCHAR
+  - Aperçu du SQL généré avant téléchargement
+  - Export en `.sql`
+
+- [ ] T095 Rapport de migration
+  - Liste les champs `Calculation` et `Summary` non migrés (avec explication)
+  - Liste les relations inter-fichiers qui deviennent cross-schema
+  - Signale les champs sans type clair ou sans nom de clé primaire détectable
+
+---
+
 ## Backlog / Idées futures 💡
 
 - Support DDR exporté en plusieurs dossiers (solutions avec sous-dossiers)
