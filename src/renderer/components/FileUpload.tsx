@@ -39,7 +39,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
 
   const validateFile = (file: File): string | null => {
     if (!file.name.toLowerCase().endsWith('.xml')) {
-      return 'Veuillez sélectionner un fichier XML';
+      return 'Please select an XML file';
     }
     const maxSize = 100 * 1024 * 1024; // 100MB
     if (file.size > maxSize) {
@@ -59,7 +59,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
         for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
         res(btoa(binary));
       };
-      reader.onerror = () => rej(new Error(`Impossible de lire ${file.name}`));
+      reader.onerror = () => rej(new Error(`Failed to read ${file.name}`));
       reader.readAsArrayBuffer(file);
     });
 
@@ -178,12 +178,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
   return (
     <Box>
       <Typography variant="h5" gutterBottom>
-        Importer des fichiers DDR FileMaker
+        Import FileMaker DDR Files
       </Typography>
 
       <Typography variant="body1" color="textSecondary" sx={{ mb: 3 }}>
-        Importez un <strong>Summary.xml</strong> pour analyser toute la solution d'un coup,
-        ou un fichier DDR individuel (<strong>.xml</strong>).
+        Upload a <strong>Summary.xml</strong> to import the full solution at once,
+        or a single DDR file (<strong>.xml</strong>).
       </Typography>
 
       {/* Drag & Drop Area */}
@@ -218,10 +218,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
               }}
             />
             <Typography variant="h6" gutterBottom>
-              {dragOver ? 'Déposer ici' : 'Glisser-déposer un fichier XML ici'}
+              {dragOver ? 'Drop here' : 'Drag & drop an XML file here'}
             </Typography>
             <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-              Summary.xml (solution complète) ou fichier DDR individuel — ou cliquer pour parcourir
+              Summary.xml (full solution) or individual DDR file — or click to browse
             </Typography>
             <Button
               variant="outlined"
@@ -326,19 +326,19 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
           </Typography>
           <List dense>
             <ListItem>
-              <ListItemText primary="• Summary.xml — importe tous les fichiers de la solution en une seule opération" />
+              <ListItemText primary="• Summary.xml — imports all files in the solution in one operation" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Fichier DDR individuel (.xml) — importe un seul fichier .fmp12" />
+              <ListItemText primary="• Individual DDR file (.xml) — imports a single .fmp12 file" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Taille maximale : 100MB par fichier" />
+              <ListItemText primary="• Maximum file size: 100MB" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Généré via FileMaker Pro : Fichier > Gérer > Base de données > DDR" />
+              <ListItemText primary="• Generated via FileMaker Pro: File > Manage > Database > DDR" />
             </ListItem>
             <ListItem>
-              <ListItemText primary="• Encodages supportés : UTF-16 LE (par défaut FileMaker) et UTF-8" />
+              <ListItemText primary="• Supported encodings: UTF-16 LE (FileMaker default) and UTF-8" />
             </ListItem>
           </List>
         </CardContent>
