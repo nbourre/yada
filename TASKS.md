@@ -169,6 +169,63 @@
 
 ---
 
+## Bugs connus 🐛
+
+- [ ] BUG-008 Bouton "œil" (view entity) dans SearchPanel ne fait rien au clic
+  - Fichier : `src/renderer/components/SearchPanel.tsx` — chercher `onView` ou l'IconButton avec l'icône VisibilityIcon
+  - Le handler existe probablement mais ne navigue pas vers le bon onglet / ne sélectionne pas l'entité
+
+---
+
+## Phase 8 — Internationalisation (i18n) 💡 À FAIRE (plus tard)
+
+- [ ] T070 Choisir et intégrer une librairie i18n (ex: `react-i18next`)
+- [ ] T071 Extraire toutes les strings UI en fichiers de traduction (`en.json`, `fr.json`)
+- [ ] T072 Ajouter un sélecteur de langue dans les paramètres
+- [ ] T073 Traduire l'interface en français (priorité : FR + EN)
+
+---
+
+## Phase 9 — Analyse de dépendances en cascade 💡 À FAIRE (plus tard)
+
+### User Story
+> *En tant que développeur FileMaker, lorsque je clique sur une entité (ex: un champ d'une table),
+> je veux voir toutes ses dépendances en ordre de cascade — du plus proche au plus loin —
+> afin de comprendre l'impact d'une modification ou suppression.*
+
+### Exemples de cascade
+- **Champ** → layouts qui l'affichent → scripts qui le modifient (`Set Field`) → scripts qui appellent ces scripts → ...
+- **Script** → scripts qui l'appellent → scripts qui appellent ces appelants → ...
+- **Table** → relations qui l'impliquent → layouts basés sur ces TOs → scripts qui accèdent à ces layouts → ...
+
+### Tâches
+
+- [ ] T080 Moteur de résolution de dépendances en cascade
+  - Fichier : `src/services/dependency.service.ts`
+  - Entrée : `{ entityType, entityId }`
+  - Sortie : arbre de dépendances `DependencyNode[]` avec profondeur (level 1, 2, 3...)
+  - Algorithme BFS (largeur d'abord) pour garantir l'ordre du plus proche au plus loin
+  - Détecter les cycles (dépendances circulaires)
+
+- [ ] T081 API endpoint `POST /api/dependencies` côté serveur
+  - Retourne `{ entity, dependencies: DependencyNode[], depth: number }`
+
+- [ ] T082 Vue "Dependency Panel" dans l'UI
+  - S'ouvre en panneau latéral ou modal au clic sur une entité
+  - Affichage en arbre ou en liste groupée par niveau (Level 1, Level 2...)
+  - Code couleur par type d'entité (champ, script, layout, relation)
+  - Bouton "Navigate to" pour aller directement à l'entité dépendante
+
+- [ ] T083 Intégration dans SearchPanel — clic sur l'œil ouvre le Dependency Panel
+- [ ] T084 Intégration dans GraphVisualization — clic sur un nœud affiche ses dépendances
+
+### Prérequis
+- T030 ✅ (étapes de scripts parsées — nécessaire pour les dépendances scripts→scripts)
+- T033 ✅ (cross-références scripts→scripts extraites)
+- T031 ✅ (custom functions — peuvent être des dépendances de calculs)
+
+---
+
 ## Backlog / Idées futures 💡
 
 - Support DDR exporté en plusieurs dossiers (solutions avec sous-dossiers)
