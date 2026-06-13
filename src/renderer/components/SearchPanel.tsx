@@ -33,6 +33,7 @@ import { Search, FilterList, Clear, ExpandMore, Visibility, GetApp } from '@mui/
 
 interface SearchPanelProps {
   projectId: string | null;
+  onNavigate?: (tab: number) => void;
 }
 
 interface SearchResult {
@@ -67,7 +68,7 @@ const SEARCH_SCOPES = [
   { value: 'script_step', label: 'Script Steps' },
 ];
 
-const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
+const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onNavigate }) => {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState<SearchFilters>({
     types: [],
@@ -495,8 +496,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId }) => {
                       <IconButton
                         edge="end"
                         onClick={() => {
-                          console.log('View entity:', result);
-                          // TODO: Navigate to entity detail or open in a dialog
+                          // table/field/relationship → Visualize (tab 4), others → Dashboard (tab 0)
+                          const tab = ['table', 'field', 'relationship'].includes(result.type) ? 4 : 0;
+                          onNavigate?.(tab);
                         }}
                         title={`View ${result.type}: ${result.name}`}
                       >

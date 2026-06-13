@@ -18,7 +18,7 @@ import {
   CircularProgress,
   // Removed unused UI imports (Paper, Divider, Button, Dialog components, TextField)
 } from '@mui/material';
-import { TableChart, ViewColumn, Web, Code, AccountTree, Functions, FolderSpecial, CheckCircle, Error as ErrorIcon, HourglassEmpty } from '@mui/icons-material';
+import { TableChart, ViewColumn, Web, Code, AccountTree, Functions, FolderSpecial, CheckCircle, Error as ErrorIcon, HourglassEmpty, FormatListBulleted, Security, CallMerge } from '@mui/icons-material';
 import LinearProgress from '@mui/material/LinearProgress';
 
 import { Project, Solution } from '../../models';
@@ -334,6 +334,54 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 </CardContent>
               </Card>
             </Grid>
+
+            {project.statistics.valueListCount != null && (
+              <Grid item xs={6} md={4}>
+                <Card>
+                  <CardContent sx={{ textAlign: 'center' }}>
+                    <FormatListBulleted color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                    <Typography variant="h4" component="div">
+                      {project.statistics.valueListCount}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Value Lists
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
+
+            {project.statistics.privilegeSetCount != null && (
+              <Grid item xs={6} md={4}>
+                <Card>
+                  <CardContent sx={{ textAlign: 'center' }}>
+                    <Security color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                    <Typography variant="h4" component="div">
+                      {project.statistics.privilegeSetCount}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Privilege Sets
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
+
+            {project.statistics.scriptReferenceCount != null && (
+              <Grid item xs={6} md={4}>
+                <Card>
+                  <CardContent sx={{ textAlign: 'center' }}>
+                    <CallMerge color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                    <Typography variant="h4" component="div">
+                      {project.statistics.scriptReferenceCount}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Script References
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
           </Grid>
 
           {/* Metadata */}

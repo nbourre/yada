@@ -27,6 +27,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import DownloadIcon from '@mui/icons-material/Download';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import TableChartIcon from '@mui/icons-material/TableChart';
 
 // Import our components (will create these next)
 import ProjectDashboard from './ProjectDashboard';
@@ -34,6 +35,7 @@ import FileUpload from './FileUpload';
 import SearchPanel from './SearchPanel';
 import GraphVisualization from './GraphVisualization';
 import ExportPanel from './ExportPanel';
+import TablesView from './TablesView';
 
 // Import types from our models
 import { Project, Solution } from '../../models';
@@ -308,21 +310,27 @@ export default function App() {
             />
             <Tab icon={<FolderOpenIcon />} label="Upload" {...a11yProps(1)} />
             <Tab
+              icon={<TableChartIcon />}
+              label="Tables"
+              {...a11yProps(2)}
+              disabled={!currentProject}
+            />
+            <Tab
               icon={<SearchIcon />}
               label="Search"
-              {...a11yProps(2)}
+              {...a11yProps(3)}
               disabled={!currentProject}
             />
             <Tab
               icon={<AccountTreeIcon />}
               label="Visualize"
-              {...a11yProps(3)}
+              {...a11yProps(4)}
               disabled={!currentProject}
             />
             <Tab
               icon={<DownloadIcon />}
               label="Export"
-              {...a11yProps(4)}
+              {...a11yProps(5)}
               disabled={!currentProject}
             />
           </Tabs>
@@ -344,14 +352,18 @@ export default function App() {
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>
-          <SearchPanel projectId={currentProject?.id || null} />
+          <TablesView projectId={currentProject?.id || null} />
         </TabPanel>
 
         <TabPanel value={currentTab} index={3}>
-          <GraphVisualization projectId={currentProject?.id || null} />
+          <SearchPanel projectId={currentProject?.id || null} onNavigate={setCurrentTab} />
         </TabPanel>
 
         <TabPanel value={currentTab} index={4}>
+          <GraphVisualization projectId={currentProject?.id || null} />
+        </TabPanel>
+
+        <TabPanel value={currentTab} index={5}>
           <ExportPanel projectId={currentProject?.id || null} />
         </TabPanel>
       </Container>

@@ -64,7 +64,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   interface GraphElementNode {
-    data: { id: string; name?: string; type: string; description?: string };
+    data: { id: string; name?: string; label?: string; type: string; description?: string; isOccurrence?: boolean; baseTable?: string | null };
   }
   interface GraphElementEdge {
     data: { id?: string; source: string; target: string };
@@ -157,17 +157,23 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
       cyRef.current = null;
     }
 
-    // Filter data based on settings
+    // Filter data based on settings, and build biligne labels for TO nodes
+    const sourceNodes = settings.showOrphans
+      ? graphData.elements.nodes
+      : graphData.elements.nodes.filter(
+          n =>
+            n.data.type !== 'table' ||
+            graphData.elements.edges.some(
+              e => e.data.source === n.data.id || e.data.target === n.data.id
+            )
+        );
     const filteredElements: GraphData['elements'] = {
-      nodes: settings.showOrphans
-        ? graphData.elements.nodes
-        : graphData.elements.nodes.filter(
-            n =>
-              n.data.type !== 'table' ||
-              graphData.elements.edges.some(
-                e => e.data.source === n.data.id || e.data.target === n.data.id
-              )
-          ),
+      nodes: sourceNodes.map(n => {
+        if (n.data.type === 'table' && n.data.isOccurrence && n.data.baseTable) {
+          return { ...n, data: { ...n.data, label: `${n.data.name}\n(${n.data.baseTable})` } };
+        }
+        return n;
+      }),
       edges: graphData.elements.edges,
     };
 
@@ -184,8 +190,10 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
             'text-halign': 'center',
             'text-margin-y': 6,
             color: '#1a1a1a',
-            'font-size': '12px',
+            'font-size': '11px',
             'font-weight': 'bold',
+            'text-wrap': 'wrap' as any,
+            'text-max-width': '120px' as any,
             'text-background-color': '#ffffff',
             'text-background-opacity': 0.75,
             'text-background-padding': '2px',
@@ -553,8 +561,13 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
               {selectedNode.type === 'table' ? '📋' : '🏷️'} {selectedNode.name}
             </Typography>
             <Typography variant="body2" color="textSecondary">
-              Type: {selectedNode.type}
+              Type: {selectedNode.isOccurrence ? 'Table Occurrence (TO)' : selectedNode.type}
             </Typography>
+            {selectedNode.isOccurrence && selectedNode.baseTable && (
+              <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
+                Base table: <strong>{selectedNode.baseTable}</strong>
+              </Typography>
+            )}
             {selectedNode.description && (
               <Typography variant="body2" sx={{ mt: 1 }}>
                 {selectedNode.description}

@@ -1,7 +1,7 @@
 # YADA — Suivi des tâches
 
 > Fichier de suivi actif. Mis à jour au fur et à mesure du développement.  
-> Dernière mise à jour : 2026-05-29
+> Dernière mise à jour : 2026-05-30
 
 ---
 
@@ -128,12 +128,16 @@
 
 ## Phase 5 — Amélioration UI/UX 💡 PROPOSITIONS
 
-- [ ] T040 Graphe : afficher le nom de la **table de base** sous chaque TO (occurrence)
+- [x] T040 Graphe : afficher le nom de la **table de base** sous chaque TO (occurrence)
+  - `api.service.ts` : champ `baseTable` ajouté aux données nœuds
+  - `GraphVisualization.tsx` : label biligne `TOName\n(BaseTable)` + `text-wrap: wrap`
+  - Panneau "Node Details" affiche aussi "Base table: ..."
 - [ ] T041 Graphe : filtre par fichier source quand solution multi-fichiers
 - [ ] T042 Graphe : colorier différemment les TOs selon leur fichier d'origine
 - [ ] T043 Recherche : afficher le **contexte** de la correspondance (extrait de calcul, commentaire)
 - [ ] T044 Recherche : filtre par fichier source dans une solution multi-fichiers
-- [ ] T045 Dashboard : badge / compteur de **fonctions personnalisées** et **listes de valeurs**
+- [x] T045 Dashboard : badge / compteur de **fonctions personnalisées** et **listes de valeurs**
+  - Cartes ajoutées pour `valueListCount`, `privilegeSetCount`, `scriptReferenceCount` (masquées si `null`)
 - [ ] T046 Export : rapport "scripts orphelins" (aucun appel entrant détecté)
 - [ ] T047 Export : rapport "champs non utilisés dans les layouts"
 - [ ] T048 Snapshot diff : comparaison de deux versions du même DDR
@@ -171,9 +175,9 @@
 
 ## Bugs connus 🐛
 
-- [ ] BUG-008 Bouton "œil" (view entity) dans SearchPanel ne fait rien au clic
-  - Fichier : `src/renderer/components/SearchPanel.tsx` — chercher `onView` ou l'IconButton avec l'icône VisibilityIcon
-  - Le handler existe probablement mais ne navigue pas vers le bon onglet / ne sélectionne pas l'entité
+- [x] BUG-008 Bouton "œil" (view entity) dans SearchPanel ne fait rien au clic
+  - Fix : prop `onNavigate` ajoutée à `SearchPanel`, branchée sur `setCurrentTab` dans `App.tsx`
+  - table/field/relationship → onglet Visualize (3), script/layout → onglet Dashboard (0)
 
 ---
 

@@ -859,6 +859,7 @@ export class ApiService {
             occurrenceNames?: string[];
             isOccurrence?: boolean;
             baseTableId?: string | null;
+            baseTable?: string | null;
             recordCount?: number;
           };
         }
@@ -913,6 +914,7 @@ export class ApiService {
               type: 'table',
               isOccurrence: table.isOccurrence || false,
               baseTableId: table.baseTableId || null,
+              baseTable: table.baseTable || null,
               recordCount: table.recordCount || 0,
             },
           }));
