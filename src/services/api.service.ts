@@ -8,7 +8,7 @@ import cors from 'cors';
 import multer from 'multer';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { Project, Table, Field, ProjectStatistics, ProjectMetadata, ApiResponse } from '../models';
+import { Project, Table, Field, Relationship, ProjectStatistics, ProjectMetadata, ApiResponse } from '../models';
 import { databaseService } from './database.service';
 import { xmlParserService } from './parser.service';
 import { searchService } from './search.service';
@@ -814,14 +814,61 @@ export class ApiService {
       }
     });
 
-    // Get Project Tables (T014)
+    // Get Project Tables (T014) — enriched with fields and relationships
     this.app.get('/api/projects/:id/tables', async (req, res) => {
       try {
-        const tables = await databaseService.getTablesForProject(req.params.id);
+        const projectId = req.params.id;
+        const [tables, fields, relationships] = await Promise.all([
+          databaseService.getTablesForProject(projectId),
+          databaseService.getFieldsForProject(projectId),
+          databaseService.getRelationshipsForProject(projectId),
+        ]);
 
-        const response: ApiResponse<Table[]> = {
+        // Index fields by tableId
+        const fieldsByTableId = new Map<string, typeof fields>();
+        for (const field of fields) {
+          const bucket = fieldsByTableId.get(field.tableId) ?? [];
+          bucket.push(field);
+          fieldsByTableId.set(field.tableId, bucket);
+        }
+
+        // Attach fields and relationships to each table.
+        // Fields live on base tables; TOs inherit them via baseTableId.
+        // Relationships reference TO names, so match on table.name for TOs
+        // and on TO names that point to this base table for base tables.
+        const toNamesByBaseId = new Map<string, string[]>();
+        for (const t of tables) {
+          if (t.isOccurrence && t.baseTableId) {
+            const names = toNamesByBaseId.get(t.baseTableId) ?? [];
+            names.push(t.name);
+            toNamesByBaseId.set(t.baseTableId, names);
+          }
+        }
+
+        const enrichedTables = tables.map(table => {
+          // Fields: TOs use their base table's fields
+          const fieldsLookupId = table.isOccurrence && table.baseTableId
+            ? table.baseTableId
+            : table.id;
+
+          // Relationships: TOs match by name; base tables match by all their TO names
+          const relFilter = table.isOccurrence
+            ? (r: Relationship) => r.leftTable === table.name || r.rightTable === table.name
+            : (r: Relationship) => {
+                const toNames = toNamesByBaseId.get(table.id) ?? [];
+                return toNames.some(n => r.leftTable === n || r.rightTable === n);
+              };
+
+          return {
+            ...table,
+            fields: fieldsByTableId.get(fieldsLookupId) ?? [],
+            relationships: relationships.filter(relFilter),
+          };
+        });
+
+        const response: ApiResponse<typeof enrichedTables> = {
           success: true,
-          data: tables,
+          data: enrichedTables,
           timestamp: new Date(),
           requestId: this.generateRequestId(),
         };
