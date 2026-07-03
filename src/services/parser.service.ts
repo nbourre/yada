@@ -182,10 +182,21 @@ export class XMLParserService {
   private scripts: Script[] = [];
   private relationships: Relationship[] = [];
   private customFunctions: CustomFunction[] = [];
-  private valueLists: { id: string; name: string; source: string; items: string[]; sourceTable?: string; sourceField?: string }[] = [];
+  private valueLists: {
+    id: string;
+    name: string;
+    source: string;
+    items: string[];
+    sourceTable?: string;
+    sourceField?: string;
+  }[] = [];
   private privilegeSets: { id: string; name: string; fullAccess: boolean }[] = [];
   // Cross-references: script → script calls
-  private scriptReferences: { callerScriptName: string; targetScriptName: string; targetFile?: string }[] = [];
+  private scriptReferences: {
+    callerScriptName: string;
+    targetScriptName: string;
+    targetFile?: string;
+  }[] = [];
 
   // Statistics counters
   private stats: ProjectStatistics = {
@@ -305,8 +316,8 @@ export class XMLParserService {
 
       // Find the root element (varies by FileMaker version)
       const root =
-        parsed.FMSaveAsXML ||   // FileMaker Pro 19+
-        parsed.FMPReport ||     // FileMaker Pro 12–18
+        parsed.FMSaveAsXML || // FileMaker Pro 19+
+        parsed.FMPReport || // FileMaker Pro 12–18
         parsed.FMPDDR ||
         parsed.FMPDDRDocument ||
         parsed.fmpreport ||
@@ -511,7 +522,7 @@ export class XMLParserService {
 
     for (const s of stepArray) {
       const stepName = s['@_name'] || '';
-      const enabled  = s['@_enable'] !== 'False';
+      const enabled = s['@_enable'] !== 'False';
 
       const step: ScriptStep = {
         step: stepName,
@@ -524,7 +535,7 @@ export class XMLParserService {
         case 'Perform Script':
         case 'Perform Script on Server': {
           const targetScript = s.Script?.['@_name'] || '';
-          const targetFile   = s.FileReference?.['@_name'] || '';
+          const targetFile = s.FileReference?.['@_name'] || '';
           step.options = { targetScript, targetFile };
           break;
         }
@@ -832,10 +843,7 @@ export class XMLParserService {
           typeof cf.Calculation === 'object'
             ? cf.Calculation?.['#text'] || ''
             : cf.Calculation || '',
-        comment:
-          typeof cf.Comment === 'object'
-            ? cf.Comment?.['#text']
-            : cf.Comment,
+        comment: typeof cf.Comment === 'object' ? cf.Comment?.['#text'] : cf.Comment,
       };
       this.customFunctions.push(fn);
       this.stats.customFunctionCount++;
@@ -1008,7 +1016,9 @@ export class XMLParserService {
 
       // TODO: persist layouts, scripts, relationships, custom functions, value lists, privileges to DB
       console.log(`Parsed ${this.layouts.length} layouts`);
-      console.log(`Parsed ${this.scripts.length} scripts (${this.scriptReferences.length} cross-references)`);
+      console.log(
+        `Parsed ${this.scripts.length} scripts (${this.scriptReferences.length} cross-references)`
+      );
       console.log(`Parsed ${this.relationships.length} relationships`);
       console.log(`Parsed ${this.customFunctions.length} custom functions`);
       console.log(`Parsed ${this.valueLists.length} value lists`);

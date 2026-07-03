@@ -497,7 +497,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onNavigate }) => {
                         edge="end"
                         onClick={() => {
                           // table/field/relationship → Visualize (tab 4), others → Dashboard (tab 0)
-                          const tab = ['table', 'field', 'relationship'].includes(result.type) ? 4 : 0;
+                          const tab = ['table', 'field', 'relationship'].includes(result.type)
+                            ? 4
+                            : 0;
                           onNavigate?.(tab);
                         }}
                         title={`View ${result.type}: ${result.name}`}

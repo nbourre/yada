@@ -1,7 +1,7 @@
 # YADA — Suivi des tâches
 
 > Fichier de suivi actif. Mis à jour au fur et à mesure du développement.  
-> Dernière mise à jour : 2026-05-30
+> Dernière mise à jour : 2026-07-03
 
 ---
 
@@ -223,10 +223,20 @@
 - [ ] T083 Intégration dans SearchPanel — clic sur l'œil ouvre le Dependency Panel
 - [ ] T084 Intégration dans GraphVisualization — clic sur un nœud affiche ses dépendances
 
+- [ ] T085 Intégration dans TablesView — clic sur un champ dans le drawer de détail d'une table
+  - Fichier : `src/renderer/components/TablesView.tsx`
+  - Contexte : dans le drawer de détail d'une table (`DetailDrawer`), la liste des champs est déjà affichée
+  - Au clic sur un champ, afficher :
+    - Ses détails (nom, type, commentaire, options)
+    - Ses **dépendances** : ce dont le champ dépend (ex: champs référencés dans son calcul, s'il s'agit d'un champ `Calculation`)
+    - Ses **dépendants** : ce qui dépend du champ (layouts qui l'affichent, scripts qui le modifient via `Set Field`, calculs d'autres champs qui le référencent)
+  - Réutilise le moteur de résolution (T080) et idéalement le composant Dependency Panel générique (T082) plutôt que de dupliquer la logique d'affichage
+
 ### Prérequis
 - T030 ✅ (étapes de scripts parsées — nécessaire pour les dépendances scripts→scripts)
 - T033 ✅ (cross-références scripts→scripts extraites)
 - T031 ✅ (custom functions — peuvent être des dépendances de calculs)
+- T085 dépend de T080 (moteur) et bénéficie de T082 (composant Dependency Panel réutilisable)
 
 ---
 

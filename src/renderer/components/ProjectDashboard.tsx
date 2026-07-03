@@ -18,7 +18,21 @@ import {
   CircularProgress,
   // Removed unused UI imports (Paper, Divider, Button, Dialog components, TextField)
 } from '@mui/material';
-import { TableChart, ViewColumn, Web, Code, AccountTree, Functions, FolderSpecial, CheckCircle, Error as ErrorIcon, HourglassEmpty, FormatListBulleted, Security, CallMerge } from '@mui/icons-material';
+import {
+  TableChart,
+  ViewColumn,
+  Web,
+  Code,
+  AccountTree,
+  Functions,
+  FolderSpecial,
+  CheckCircle,
+  Error as ErrorIcon,
+  HourglassEmpty,
+  FormatListBulleted,
+  Security,
+  CallMerge,
+} from '@mui/icons-material';
 import LinearProgress from '@mui/material/LinearProgress';
 
 import { Project, Solution } from '../../models';
@@ -72,7 +86,9 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     }).format(d);
   };
 
-  const formatFileSize = (bytes: number) => {
+  const formatFileSize = (bytes: number | null | undefined) => {
+    if (bytes === null || bytes === undefined || isNaN(bytes)) return 'N/A';
+
     const units = ['B', 'KB', 'MB', 'GB'];
     let size = bytes;
     let unitIndex = 0;
@@ -87,30 +103,43 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   const fileStatusIcon = (status?: string) => {
     switch (status) {
-      case 'ready':    return <CheckCircle sx={{ color: 'success.main', fontSize: 18 }} />;
-      case 'error':    return <ErrorIcon sx={{ color: 'error.main', fontSize: 18 }} />;
-      case 'parsing':  return <HourglassEmpty sx={{ color: 'warning.main', fontSize: 18 }} />;
-      default:         return <HourglassEmpty sx={{ color: 'text.disabled', fontSize: 18 }} />;
+      case 'ready':
+        return <CheckCircle sx={{ color: 'success.main', fontSize: 18 }} />;
+      case 'error':
+        return <ErrorIcon sx={{ color: 'error.main', fontSize: 18 }} />;
+      case 'parsing':
+        return <HourglassEmpty sx={{ color: 'warning.main', fontSize: 18 }} />;
+      default:
+        return <HourglassEmpty sx={{ color: 'text.disabled', fontSize: 18 }} />;
     }
   };
 
   const solutionTotals = solution
     ? solution.files.reduce(
         (acc, f) => ({
-          baseTables:     acc.baseTables     + f.stats.baseTableCount,
-          tables:         acc.tables         + f.stats.tableCount,
-          relationships:  acc.relationships  + f.stats.relationshipCount,
-          layouts:        acc.layouts        + f.stats.layoutCount,
-          scripts:        acc.scripts        + f.stats.scriptCount,
-          customFunctions:acc.customFunctions+ f.stats.customFunctionCount,
-          valueLists:     acc.valueLists     + f.stats.valueListCount,
+          baseTables: acc.baseTables + f.stats.baseTableCount,
+          tables: acc.tables + f.stats.tableCount,
+          relationships: acc.relationships + f.stats.relationshipCount,
+          layouts: acc.layouts + f.stats.layoutCount,
+          scripts: acc.scripts + f.stats.scriptCount,
+          customFunctions: acc.customFunctions + f.stats.customFunctionCount,
+          valueLists: acc.valueLists + f.stats.valueListCount,
         }),
-        { baseTables: 0, tables: 0, relationships: 0, layouts: 0, scripts: 0, customFunctions: 0, valueLists: 0 }
+        {
+          baseTables: 0,
+          tables: 0,
+          relationships: 0,
+          layouts: 0,
+          scripts: 0,
+          customFunctions: 0,
+          valueLists: 0,
+        }
       )
     : null;
 
-  const parsedCount  = solution?.files.filter(f => f.parseStatus === 'ready').length  ?? 0;
-  const pendingCount = solution?.files.filter(f => f.parseStatus !== 'ready' && f.parseStatus !== 'error').length ?? 0;
+  const parsedCount = solution?.files.filter(f => f.parseStatus === 'ready').length ?? 0;
+  const pendingCount =
+    solution?.files.filter(f => f.parseStatus !== 'ready' && f.parseStatus !== 'error').length ?? 0;
 
   return (
     <Grid container spacing={3}>
@@ -122,11 +151,22 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               <Box display="flex" alignItems="center" gap={1} mb={1}>
                 <FolderSpecial color="primary" />
                 <Typography variant="h6">{solution.name}</Typography>
-                <Chip label={`FM ${solution.fileMakerVersion}`} size="small" variant="outlined" sx={{ ml: 1 }} />
+                <Chip
+                  label={`FM ${solution.fileMakerVersion}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ ml: 1 }}
+                />
                 <Chip
                   label={`${parsedCount}/${solution.files.length} files ready`}
                   size="small"
-                  color={parsedCount === solution.files.length ? 'success' : pendingCount > 0 ? 'warning' : 'error'}
+                  color={
+                    parsedCount === solution.files.length
+                      ? 'success'
+                      : pendingCount > 0
+                        ? 'warning'
+                        : 'error'
+                  }
                   sx={{ ml: 0.5 }}
                 />
               </Box>
@@ -134,8 +174,13 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               {/* Per-file status */}
               <Box display="flex" flexWrap="wrap" gap={1} mb={2}>
                 {solution.files.map(f => (
-                  <Box key={f.name} display="flex" alignItems="center" gap={0.5}
-                    sx={{ bgcolor: 'action.hover', borderRadius: 1, px: 1, py: 0.5 }}>
+                  <Box
+                    key={f.name}
+                    display="flex"
+                    alignItems="center"
+                    gap={0.5}
+                    sx={{ bgcolor: 'action.hover', borderRadius: 1, px: 1, py: 0.5 }}
+                  >
                     {fileStatusIcon(f.parseStatus)}
                     <Typography variant="caption">{f.name}</Typography>
                   </Box>
@@ -144,7 +189,11 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
               {/* Progress bar while parsing */}
               {pendingCount > 0 && (
-                <LinearProgress variant="determinate" value={(parsedCount / solution.files.length) * 100} sx={{ mb: 1 }} />
+                <LinearProgress
+                  variant="determinate"
+                  value={(parsedCount / solution.files.length) * 100}
+                  sx={{ mb: 1 }}
+                />
               )}
 
               {/* Aggregate stats */}
@@ -160,8 +209,12 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                     { label: 'Value Lists', value: solutionTotals.valueLists },
                   ].map(s => (
                     <Box key={s.label} textAlign="center" sx={{ minWidth: 80 }}>
-                      <Typography variant="h6" color="primary">{s.value}</Typography>
-                      <Typography variant="caption" color="textSecondary">{s.label}</Typography>
+                      <Typography variant="h6" color="primary">
+                        {s.value}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        {s.label}
+                      </Typography>
                     </Box>
                   ))}
                 </Box>
@@ -236,11 +289,18 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                   <Typography variant="body2" color="textSecondary">
                     Parsed: {formatDate(project.parsedAt)}
                   </Typography>
-                  <Typography variant="body2" color={project.status === 'error' ? 'error' : 'textSecondary'}>
+                  <Typography
+                    variant="body2"
+                    color={project.status === 'error' ? 'error' : 'textSecondary'}
+                  >
                     Status: {project.status}
                   </Typography>
                   {project.status === 'error' && (project as any).errors?.length > 0 && (
-                    <Typography variant="body2" color="error" sx={{ mt: 1, fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+                    <Typography
+                      variant="body2"
+                      color="error"
+                      sx={{ mt: 1, fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}
+                    >
                       {(project as any).errors.join('\n')}
                     </Typography>
                   )}

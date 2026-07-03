@@ -45,7 +45,6 @@ interface RawFMPReport {
 }
 
 export class SummaryParserService {
-
   /**
    * Détecte si un fichier est un Summary.xml FileMaker.
    * Lit les premiers 2KB pour vérifier le type.
@@ -54,10 +53,7 @@ export class SummaryParserService {
     try {
       const buffer = await fs.readFile(filePath);
       const sample = this.decodeBuffer(buffer).substring(0, 2000);
-      return (
-        sample.includes('<FMPReport') &&
-        sample.includes('type="Summary"')
-      );
+      return sample.includes('<FMPReport') && sample.includes('type="Summary"');
     } catch {
       return false;
     }
@@ -71,10 +67,7 @@ export class SummaryParserService {
     try {
       const buffer = Buffer.from(base64Content, 'base64');
       const sample = this.decodeBuffer(buffer).substring(0, 2000);
-      return (
-        sample.includes('<FMPReport') &&
-        sample.includes('type="Summary"')
-      );
+      return sample.includes('<FMPReport') && sample.includes('type="Summary"');
     } catch {
       return false;
     }
@@ -104,15 +97,11 @@ export class SummaryParserService {
     }
 
     if (report['@_type'] !== 'Summary') {
-      throw new Error(
-        `Ce fichier n'est pas un Summary.xml (type="${report['@_type']}")`
-      );
+      throw new Error(`Ce fichier n'est pas un Summary.xml (type="${report['@_type']}")`);
     }
 
     const summaryDir = dirname(summaryPath);
-    const rawFiles = report.File
-      ? Array.isArray(report.File) ? report.File : [report.File]
-      : [];
+    const rawFiles = report.File ? (Array.isArray(report.File) ? report.File : [report.File]) : [];
 
     const files: SolutionFile[] = rawFiles.map(f => ({
       name: f['@_name'] || 'Inconnu',
@@ -159,7 +148,7 @@ export class SummaryParserService {
     }
     // UTF-8 BOM (EF BB BF)
     if (buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
-      return buffer.toString('utf-8').replace(/^﻿/, '');
+      return buffer.toString('utf-8').replace(/^\uFEFF/, '');
     }
     return buffer.toString('utf-8');
   }
@@ -175,23 +164,22 @@ export class SummaryParserService {
   }
 
   private extractStats(f: RawSummaryFile): SolutionFileStats {
-    const n = (val?: { '@_count'?: string }) =>
-      val ? parseInt(val['@_count'] || '0', 10) : 0;
+    const n = (val?: { '@_count'?: string }) => (val ? parseInt(val['@_count'] || '0', 10) : 0);
 
     return {
-      baseTableCount:       n(f.BaseTables),
-      tableCount:           n(f.Tables),
-      relationshipCount:    n(f.Relationships),
-      layoutCount:          n(f.Layouts),
-      scriptCount:          n(f.Scripts),
-      valueListCount:       n(f.ValueLists),
-      customFunctionCount:  n(f.CustomFunctions),
-      accountCount:         n(f.Accounts),
-      privilegeCount:       n(f.Privileges),
+      baseTableCount: n(f.BaseTables),
+      tableCount: n(f.Tables),
+      relationshipCount: n(f.Relationships),
+      layoutCount: n(f.Layouts),
+      scriptCount: n(f.Scripts),
+      valueListCount: n(f.ValueLists),
+      customFunctionCount: n(f.CustomFunctions),
+      accountCount: n(f.Accounts),
+      privilegeCount: n(f.Privileges),
       extendedPrivilegeCount: n(f.ExtendedPrivileges),
-      fileReferenceCount:   n(f.FileReferences),
-      customMenuSetCount:   n(f.CustomMenuSets),
-      customMenuCount:      n(f.CustomMenus),
+      fileReferenceCount: n(f.FileReferences),
+      customMenuSetCount: n(f.CustomMenuSets),
+      customMenuCount: n(f.CustomMenus),
     };
   }
 }

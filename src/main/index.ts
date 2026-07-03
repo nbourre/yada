@@ -5,7 +5,6 @@
 
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell } from 'electron';
 import { join } from 'path';
-import { spawn } from 'child_process';
 import { createReadStream, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import FormData from 'form-data';
@@ -370,7 +369,9 @@ function setupIPC(): void {
 
       // 1. Parser le Summary.xml pour découvrir les fichiers
       const solution = await summaryParserService.parseSummary(summaryPath);
-      console.log(`Main: Solution "${solution.name}" — ${solution.files.length} fichier(s) trouvé(s)`);
+      console.log(
+        `Main: Solution "${solution.name}" — ${solution.files.length} fichier(s) trouvé(s)`
+      );
 
       // 2. Notifier le renderer que la solution est découverte
       if (mainWindow) {
@@ -409,7 +410,7 @@ function setupIPC(): void {
             throw new Error(`Server returned ${response.status}: ${response.statusText}`);
           }
 
-          const result = await response.json() as any;
+          const result = (await response.json()) as any;
           const parseResult = result.data || result;
           const project = parseResult.project || parseResult;
 

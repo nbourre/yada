@@ -167,24 +167,39 @@ export default function App() {
         setCurrentSolution(solution);
         setIsParsing(true);
         setParseProgress(0);
-        setParseMessage(`Solution "${solution.name}" found — parsing ${solution.files.length} file(s)...`);
+        setParseMessage(
+          `Solution "${solution.name}" found — parsing ${solution.files.length} file(s)...`
+        );
         showNotification(`Parsing solution: ${solution.name}`, 'info');
       });
 
       // Individual file status update during solution parse
-      window.electronAPI.onSolutionFileStatus((update: { solutionId: string; fileName: string; status: string; projectId?: string; error?: string }) => {
-        setCurrentSolution(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            files: prev.files.map(f =>
-              f.name === update.fileName
-                ? { ...f, parseStatus: update.status as any, projectId: update.projectId, parseError: update.error }
-                : f
-            ),
-          };
-        });
-      });
+      window.electronAPI.onSolutionFileStatus(
+        (update: {
+          solutionId: string;
+          fileName: string;
+          status: string;
+          projectId?: string;
+          error?: string;
+        }) => {
+          setCurrentSolution(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              files: prev.files.map(f =>
+                f.name === update.fileName
+                  ? {
+                      ...f,
+                      parseStatus: update.status as any,
+                      projectId: update.projectId,
+                      parseError: update.error,
+                    }
+                  : f
+              ),
+            };
+          });
+        }
+      );
 
       // Solution fully parsed
       window.electronAPI.onSolutionParsed((solution: Solution) => {
@@ -192,7 +207,10 @@ export default function App() {
         setIsParsing(false);
         setParseProgress(100);
         const readyCount = solution.files.filter((f: any) => f.parseStatus === 'ready').length;
-        showNotification(`Solution parsed: ${readyCount}/${solution.files.length} files ready`, 'success');
+        showNotification(
+          `Solution parsed: ${readyCount}/${solution.files.length} files ready`,
+          'success'
+        );
         setParseSuccessVisible(true);
         setCurrentTab(0);
       });

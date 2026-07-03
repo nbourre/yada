@@ -8,7 +8,15 @@ import cors from 'cors';
 import multer from 'multer';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { Project, Table, Field, Relationship, ProjectStatistics, ProjectMetadata, ApiResponse } from '../models';
+import {
+  Project,
+  Table,
+  Field,
+  Relationship,
+  ProjectStatistics,
+  ProjectMetadata,
+  ApiResponse,
+} from '../models';
 import { databaseService } from './database.service';
 import { xmlParserService } from './parser.service';
 import { searchService } from './search.service';
@@ -847,9 +855,8 @@ export class ApiService {
 
         const enrichedTables = tables.map(table => {
           // Fields: TOs use their base table's fields
-          const fieldsLookupId = table.isOccurrence && table.baseTableId
-            ? table.baseTableId
-            : table.id;
+          const fieldsLookupId =
+            table.isOccurrence && table.baseTableId ? table.baseTableId : table.id;
 
           // Relationships: TOs match by name; base tables match by all their TO names
           const relFilter = table.isOccurrence

@@ -7,44 +7,6 @@ import { Application } from 'electron';
 import { Browser, Page } from 'playwright';
 import path from 'path';
 
-// Type definitions for integration test scenarios
-interface TestProject {
-  id: string;
-  name: string;
-  files: Array<{
-    name: string;
-    path: string;
-    size: number;
-    type: 'ui' | 'data';
-  }>;
-}
-
-interface ParseResult {
-  success: boolean;
-  projectId: string;
-  statistics: {
-    tables: number;
-    fields: number;
-    layouts: number;
-    scripts: number;
-    relationships: number;
-  };
-  processingTime: number;
-}
-
-interface SearchResult {
-  results: Array<{
-    entityType: string;
-    entityName: string;
-    matches: Array<{
-      context: string;
-      position: number;
-    }>;
-  }>;
-  totalCount: number;
-  searchTime: number;
-}
-
 describe('FileMaker DDR XML Parser & Explorer - Integration Tests', () => {
   let electronApp: Application;
   let browser: Browser;
@@ -882,7 +844,7 @@ describe('FileMaker DDR XML Parser & Explorer - Integration Tests', () => {
         technologyNeutrality: true, // Multiple export formats for interoperability
       };
 
-      Object.entries(metrics).forEach(([principle, met]) => {
+      Object.entries(metrics).forEach(([, met]) => {
         expect(met).toBe(true);
       });
     });

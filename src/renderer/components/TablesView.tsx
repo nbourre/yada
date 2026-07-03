@@ -12,7 +12,6 @@ import {
   Chip,
   CircularProgress,
   Alert,
-  Divider,
   IconButton,
   Table,
   TableBody,
@@ -38,7 +37,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
-import { Table as TableModel, Field, Relationship } from '../../models';
+import { Table as TableModel } from '../../models';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +78,6 @@ function CustomToolbar() {
 
 interface DetailDrawerProps {
   table: TableModel | null;
-  allTables: TableModel[];
   onClose: () => void;
 }
 
@@ -112,7 +110,7 @@ function FieldTypeChip({ type }: { type: string }) {
   );
 }
 
-function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
+function DetailDrawer({ table, onClose }: DetailDrawerProps) {
   const [fieldFilter, setFieldFilter] = useState('');
 
   useEffect(() => {
@@ -124,27 +122,24 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
   const isOccurrence = table.isOccurrence ?? false;
   const baseTableName = table.baseTable ?? table.sourceTable ?? '';
 
-  const filteredFields = (table.fields ?? []).filter(f =>
-    f.name.toLowerCase().includes(fieldFilter.toLowerCase()) ||
-    f.type.toLowerCase().includes(fieldFilter.toLowerCase()) ||
-    (f.comment ?? '').toLowerCase().includes(fieldFilter.toLowerCase())
+  const filteredFields = (table.fields ?? []).filter(
+    f =>
+      f.name.toLowerCase().includes(fieldFilter.toLowerCase()) ||
+      f.type.toLowerCase().includes(fieldFilter.toLowerCase()) ||
+      (f.comment ?? '').toLowerCase().includes(fieldFilter.toLowerCase())
   );
 
   // Relations impliquant cette table (par nom)
-  const relatedRels = (table.relationships ?? []);
-
-  // Résoudre le nom de la table cible depuis les relations
-  const resolveTableName = (tableId: string) => {
-    const found = allTables.find(t => t.id === tableId);
-    return found?.name ?? tableId;
-  };
+  const relatedRels = table.relationships ?? [];
 
   return (
     <Drawer
       anchor="right"
       open={!!table}
       onClose={onClose}
-      PaperProps={{ sx: { width: { xs: '100%', sm: 560 }, display: 'flex', flexDirection: 'column' } }}
+      PaperProps={{
+        sx: { width: { xs: '100%', sm: 560 }, display: 'flex', flexDirection: 'column' },
+      }}
     >
       {/* En-tête */}
       <Box
@@ -186,8 +181,16 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
       {/* Stats rapides */}
       <Box display="flex" sx={{ borderBottom: 1, borderColor: 'divider' }}>
         {[
-          { icon: <ViewColumnIcon fontSize="small" />, label: 'Champs', value: table.fields?.length ?? 0 },
-          { icon: <LinkIcon fontSize="small" />, label: 'Relations', value: table.relationships?.length ?? 0 },
+          {
+            icon: <ViewColumnIcon fontSize="small" />,
+            label: 'Champs',
+            value: table.fields?.length ?? 0,
+          },
+          {
+            icon: <LinkIcon fontSize="small" />,
+            label: 'Relations',
+            value: table.relationships?.length ?? 0,
+          },
         ].map(s => (
           <Box
             key={s.label}
@@ -195,7 +198,13 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
             display="flex"
             alignItems="center"
             gap={1}
-            sx={{ px: 3, py: 1.5, borderRight: 1, borderColor: 'divider', '&:last-child': { borderRight: 0 } }}
+            sx={{
+              px: 3,
+              py: 1.5,
+              borderRight: 1,
+              borderColor: 'divider',
+              '&:last-child': { borderRight: 0 },
+            }}
           >
             {s.icon}
             <Box>
@@ -212,7 +221,6 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
 
       {/* Contenu scrollable */}
       <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 2 }}>
-
         {/* Champs */}
         <Box display="flex" alignItems="center" gap={1} mb={1}>
           <ViewColumnIcon fontSize="small" color="action" />
@@ -256,12 +264,17 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
                 </TableRow>
               ) : (
                 filteredFields.map(field => (
-                  <TableRow
-                    key={field.id}
-                    hover
-                    sx={{ '&:last-child td': { border: 0 } }}
-                  >
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <TableRow key={field.id} hover sx={{ '&:last-child td': { border: 0 } }}>
+                    <TableCell
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontSize: '0.8rem',
+                        maxWidth: 140,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       <Tooltip title={field.name} placement="top">
                         <span>{field.name}</span>
                       </Tooltip>
@@ -271,10 +284,33 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
                     </TableCell>
                     <TableCell>
                       <Box display="flex" gap={0.5} flexWrap="wrap">
-                        {field.options?.indexed && <Chip label="idx" size="small" sx={{ height: 16, fontSize: '0.65rem' }} />}
-                        {field.options?.required && <Chip label="req" size="small" color="error" sx={{ height: 16, fontSize: '0.65rem' }} />}
-                        {field.options?.unique && <Chip label="uniq" size="small" color="warning" sx={{ height: 16, fontSize: '0.65rem' }} />}
-                        {field.options?.global && <Chip label="global" size="small" color="info" sx={{ height: 16, fontSize: '0.65rem' }} />}
+                        {field.options?.indexed && (
+                          <Chip label="idx" size="small" sx={{ height: 16, fontSize: '0.65rem' }} />
+                        )}
+                        {field.options?.required && (
+                          <Chip
+                            label="req"
+                            size="small"
+                            color="error"
+                            sx={{ height: 16, fontSize: '0.65rem' }}
+                          />
+                        )}
+                        {field.options?.unique && (
+                          <Chip
+                            label="uniq"
+                            size="small"
+                            color="warning"
+                            sx={{ height: 16, fontSize: '0.65rem' }}
+                          />
+                        )}
+                        {field.options?.global && (
+                          <Chip
+                            label="global"
+                            size="small"
+                            color="info"
+                            sx={{ height: 16, fontSize: '0.65rem' }}
+                          />
+                        )}
                         {field.options?.repeating && (
                           <Chip
                             label={`×${field.options.repetitions ?? '?'}`}
@@ -284,7 +320,16 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
                         )}
                       </Box>
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <TableCell
+                      sx={{
+                        fontSize: '0.75rem',
+                        color: 'text.secondary',
+                        maxWidth: 120,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       <Tooltip title={field.comment ?? ''} placement="top">
                         <span>{field.comment ?? ''}</span>
                       </Tooltip>
@@ -326,18 +371,33 @@ function DetailDrawer({ table, allTables, onClose }: DetailDrawerProps) {
               ) : (
                 relatedRels.map(rel => (
                   <TableRow key={rel.id} hover sx={{ '&:last-child td': { border: 0 } }}>
-                    <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace' }}>{rel.leftTable}</TableCell>
-                    <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace', color: 'text.secondary' }}>{rel.leftField}</TableCell>
+                    <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                      {rel.leftTable}
+                    </TableCell>
+                    <TableCell
+                      sx={{ fontSize: '0.78rem', fontFamily: 'monospace', color: 'text.secondary' }}
+                    >
+                      {rel.leftField}
+                    </TableCell>
                     <TableCell align="center">
                       <Typography fontSize="0.8rem" color="text.secondary">
-                        {rel.type === 'one-to-many' ? '1→∞'
-                          : rel.type === 'many-to-one' ? '∞→1'
-                          : rel.type === 'many-to-many' ? '∞→∞'
-                          : '1→1'}
+                        {rel.type === 'one-to-many'
+                          ? '1→∞'
+                          : rel.type === 'many-to-one'
+                            ? '∞→1'
+                            : rel.type === 'many-to-many'
+                              ? '∞→∞'
+                              : '1→1'}
                       </Typography>
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace', color: 'text.secondary' }}>{rel.rightField}</TableCell>
-                    <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace' }}>{rel.rightTable}</TableCell>
+                    <TableCell
+                      sx={{ fontSize: '0.78rem', fontFamily: 'monospace', color: 'text.secondary' }}
+                    >
+                      {rel.rightField}
+                    </TableCell>
+                    <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                      {rel.rightTable}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -406,7 +466,10 @@ export default function TablesView({ projectId }: TablesViewProps) {
       minWidth: 180,
       renderCell: params => (
         <Box display="flex" alignItems="center" gap={1}>
-          <TableChartIcon fontSize="small" color={params.row.type === 'Base Table' ? 'primary' : 'secondary'} />
+          <TableChartIcon
+            fontSize="small"
+            color={params.row.type === 'Base Table' ? 'primary' : 'secondary'}
+          />
           <Typography variant="body2" fontFamily="monospace" fontWeight={500}>
             {params.value}
           </Typography>
@@ -552,11 +615,7 @@ export default function TablesView({ projectId }: TablesViewProps) {
       </Paper>
 
       {/* Drawer de détail */}
-      <DetailDrawer
-        table={selectedTable}
-        allTables={tables}
-        onClose={() => setSelectedTable(null)}
-      />
+      <DetailDrawer table={selectedTable} onClose={() => setSelectedTable(null)} />
     </Box>
   );
 }

@@ -64,7 +64,15 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   interface GraphElementNode {
-    data: { id: string; name?: string; label?: string; type: string; description?: string; isOccurrence?: boolean; baseTable?: string | null };
+    data: {
+      id: string;
+      name?: string;
+      label?: string;
+      type: string;
+      description?: string;
+      isOccurrence?: boolean;
+      baseTable?: string | null;
+    };
   }
   interface GraphElementEdge {
     data: { id?: string; source: string; target: string };
@@ -120,7 +128,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
         throw new Error(`Failed to load graph data: ${response.statusText}`);
       }
 
-  const data = (await response.json()) as GraphData;
+      const data = (await response.json()) as GraphData;
       setGraphData(data);
 
       // Calculate stats
@@ -152,7 +160,9 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
     if (cyRef.current) {
       try {
         cyRef.current.stop(); // stop animations/layouts
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
       cyRef.current.destroy();
       cyRef.current = null;
     }
@@ -286,7 +296,9 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
       try {
         cyRef.current.stop(); // stop current animation first
         cyRef.current.layout({ name: layout, animate: false, fit: true } as any).run();
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
     }
     // Update settings without triggering full re-init (layout already applied above)
     setSettings(prev => ({ ...prev, layout }));
@@ -300,7 +312,9 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
       link.download = `database-graph-${new Date().toISOString().split('T')[0]}.${format}`;
 
       if (format === 'svg') {
-        const coreWithSvg = cyRef.current as unknown as { svg: (opts: { scale?: number; full?: boolean }) => string };
+        const coreWithSvg = cyRef.current as unknown as {
+          svg: (opts: { scale?: number; full?: boolean }) => string;
+        };
         const svgData = coreWithSvg.svg({ scale: 2, full: true });
         const blob = new Blob([svgData], { type: 'image/svg+xml' });
         link.href = URL.createObjectURL(blob);

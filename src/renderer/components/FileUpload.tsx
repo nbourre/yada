@@ -134,7 +134,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
         if (isSummary) {
           // For Summary.xml we MUST use the original path so relative links resolve correctly
           if (!originalPath) {
-            setError('Could not determine file path. Please use the Browse button instead of drag & drop.');
+            setError(
+              'Could not determine file path. Please use the Browse button instead of drag & drop.'
+            );
             return;
           }
           console.log('Detected Summary.xml — launching full solution parse:', originalPath);
@@ -182,8 +184,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
       </Typography>
 
       <Typography variant="body1" color="textSecondary" sx={{ mb: 3 }}>
-        Upload a <strong>Summary.xml</strong> to import the full solution at once,
-        or a single DDR file (<strong>.xml</strong>).
+        Upload a <strong>Summary.xml</strong> to import the full solution at once, or a single DDR
+        file (<strong>.xml</strong>).
       </Typography>
 
       {/* Drag & Drop Area */}

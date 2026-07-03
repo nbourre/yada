@@ -228,11 +228,11 @@ export interface SolutionFileStats {
 }
 
 export interface SolutionFile {
-  name: string;          // ex: "Gestionnaire iPlus.fmp12"
-  link: string;          // chemin relatif vers le .xml DDR
-  serverPath: string;    // ex: "100.90.20.68"
+  name: string; // ex: "Gestionnaire iPlus.fmp12"
+  link: string; // chemin relatif vers le .xml DDR
+  serverPath: string; // ex: "100.90.20.68"
   stats: SolutionFileStats;
-  projectId?: string;    // rempli après parsing du DDR
+  projectId?: string; // rempli après parsing du DDR
   parseStatus?: 'pending' | 'parsing' | 'ready' | 'error';
   parseError?: string;
 }
