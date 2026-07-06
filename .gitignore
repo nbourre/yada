@@ -12,6 +12,10 @@ out/
 *.tgz
 *.tar.gz
 
+# Stray tsc output committed alongside sources (should only ever land in dist/)
+src/**/*.js
+src/**/*.js.map
+
 # TypeScript
 *.tsbuildinfo
 .tscache/

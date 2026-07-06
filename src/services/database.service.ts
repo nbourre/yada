@@ -2,7 +2,16 @@
  * Mock Database service for testing purposes
  */
 
-import { Project, Table, Field, Relationship } from '../models';
+import {
+  Project,
+  Table,
+  Field,
+  Relationship,
+  Layout,
+  Script,
+  CustomFunction,
+  ScriptReference,
+} from '../models';
 
 // Search result type
 interface SearchResult {
@@ -18,6 +27,10 @@ export class DatabaseService {
   private mockTables: Map<string, Table> = new Map();
   private mockFields: Map<string, Field> = new Map();
   private mockRelationships: Map<string, Relationship[]> = new Map();
+  private mockLayouts: Map<string, Layout> = new Map();
+  private mockScripts: Map<string, Script> = new Map();
+  private mockCustomFunctions: Map<string, CustomFunction> = new Map();
+  private mockScriptReferences: Map<string, ScriptReference[]> = new Map(); // keyed by projectId
   // Relationship operations
   async createRelationship(relationship: Relationship): Promise<Relationship> {
     if (!this.initialized) await this.initialize();
@@ -271,6 +284,67 @@ export class DatabaseService {
     return Array.from(this.mockFields.values()).filter(field => field.projectId === projectId);
   }
 
+  // Layout operations
+  async createLayout(layout: Omit<Layout, 'createdAt' | 'updatedAt'>): Promise<Layout> {
+    if (!this.initialized) await this.initialize();
+
+    const now = new Date();
+    const fullLayout: Layout = { ...layout, createdAt: now, updatedAt: now };
+
+    this.mockLayouts.set(fullLayout.id, fullLayout);
+    return fullLayout;
+  }
+
+  async getLayoutsForProject(projectId: string): Promise<Layout[]> {
+    if (!this.initialized) await this.initialize();
+    return Array.from(this.mockLayouts.values()).filter(layout => layout.projectId === projectId);
+  }
+
+  // Script operations
+  async createScript(script: Omit<Script, 'createdAt' | 'updatedAt'>): Promise<Script> {
+    if (!this.initialized) await this.initialize();
+
+    const now = new Date();
+    const fullScript: Script = { ...script, createdAt: now, updatedAt: now };
+
+    this.mockScripts.set(fullScript.id, fullScript);
+    return fullScript;
+  }
+
+  async getScriptsForProject(projectId: string): Promise<Script[]> {
+    if (!this.initialized) await this.initialize();
+    return Array.from(this.mockScripts.values()).filter(script => script.projectId === projectId);
+  }
+
+  // Custom function operations
+  async createCustomFunction(
+    fn: Omit<CustomFunction, 'createdAt' | 'updatedAt'>
+  ): Promise<CustomFunction> {
+    if (!this.initialized) await this.initialize();
+
+    const now = new Date();
+    const fullFn: CustomFunction = { ...fn, createdAt: now, updatedAt: now };
+
+    this.mockCustomFunctions.set(fullFn.id, fullFn);
+    return fullFn;
+  }
+
+  async getCustomFunctionsForProject(projectId: string): Promise<CustomFunction[]> {
+    if (!this.initialized) await this.initialize();
+    return Array.from(this.mockCustomFunctions.values()).filter(fn => fn.projectId === projectId);
+  }
+
+  // Script cross-reference operations (script -> script call graph)
+  async saveScriptReferences(projectId: string, refs: ScriptReference[]): Promise<void> {
+    if (!this.initialized) await this.initialize();
+    this.mockScriptReferences.set(projectId, refs);
+  }
+
+  async getScriptReferencesForProject(projectId: string): Promise<ScriptReference[]> {
+    if (!this.initialized) await this.initialize();
+    return this.mockScriptReferences.get(projectId) ?? [];
+  }
+
   // Search operations
   async searchEntities(
     projectId: string,
@@ -327,6 +401,10 @@ export class DatabaseService {
     this.mockProjects.clear();
     this.mockTables.clear();
     this.mockFields.clear();
+    this.mockLayouts.clear();
+    this.mockScripts.clear();
+    this.mockCustomFunctions.clear();
+    this.mockScriptReferences.clear();
     // relationships intentionally not cleared to allow inspection across sessions in tests
   }
 }

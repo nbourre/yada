@@ -37,7 +37,8 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
-import { Table as TableModel } from '../../models';
+import { Table as TableModel, Field, DependencyEntityRef } from '../../models';
+import DependencyPanel from './DependencyPanel';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +80,7 @@ function CustomToolbar() {
 interface DetailDrawerProps {
   table: TableModel | null;
   onClose: () => void;
+  onFieldClick: (field: Field) => void;
 }
 
 const FIELD_TYPE_COLOR: Record<string, string> = {
@@ -110,7 +112,7 @@ function FieldTypeChip({ type }: { type: string }) {
   );
 }
 
-function DetailDrawer({ table, onClose }: DetailDrawerProps) {
+function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
   const [fieldFilter, setFieldFilter] = useState('');
 
   useEffect(() => {
@@ -264,7 +266,12 @@ function DetailDrawer({ table, onClose }: DetailDrawerProps) {
                 </TableRow>
               ) : (
                 filteredFields.map(field => (
-                  <TableRow key={field.id} hover sx={{ '&:last-child td': { border: 0 } }}>
+                  <TableRow
+                    key={field.id}
+                    hover
+                    onClick={() => onFieldClick(field)}
+                    sx={{ cursor: 'pointer', '&:last-child td': { border: 0 } }}
+                  >
                     <TableCell
                       sx={{
                         fontFamily: 'monospace',
@@ -418,6 +425,7 @@ export default function TablesView({ projectId }: TablesViewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTable, setSelectedTable] = useState<TableModel | null>(null);
+  const [selectedField, setSelectedField] = useState<DependencyEntityRef | null>(null);
   const [filterType, setFilterType] = useState<'all' | 'base' | 'occurrence'>('all');
 
   const loadTables = useCallback(async () => {
@@ -615,7 +623,38 @@ export default function TablesView({ projectId }: TablesViewProps) {
       </Paper>
 
       {/* Drawer de détail */}
-      <DetailDrawer table={selectedTable} onClose={() => setSelectedTable(null)} />
+      <DetailDrawer
+        table={selectedTable}
+        onClose={() => setSelectedTable(null)}
+        onFieldClick={field =>
+          setSelectedField({
+            entityType: 'field',
+            entityId: field.id,
+            entityName: field.name,
+            tableName: selectedTable?.name,
+          })
+        }
+      />
+
+      {/* Panneau de dépendances */}
+      <DependencyPanel
+        projectId={projectId}
+        entity={selectedField}
+        onClose={() => setSelectedField(null)}
+        onNavigate={target => {
+          if (target.entityType === 'table') {
+            const t = tables.find(t => t.id === target.entityId);
+            if (t) {
+              setSelectedTable(t);
+              setSelectedField(null);
+            }
+          } else if (target.entityType === 'field') {
+            const owner = tables.find(t => t.name === target.tableName);
+            if (owner) setSelectedTable(owner);
+            setSelectedField(target);
+          }
+        }}
+      />
     </Box>
   );
 }

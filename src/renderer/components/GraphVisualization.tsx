@@ -34,7 +34,10 @@ import {
   Download,
   Settings,
   Refresh,
+  AccountTree,
 } from '@mui/icons-material';
+import { DependencyEntityRef, EntityType } from '../../models';
+import DependencyPanel from './DependencyPanel';
 
 interface GraphVisualizationProps {
   projectId: string | null;
@@ -83,6 +86,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<GraphStats | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphElementNode['data'] | null>(null);
+  const [depEntity, setDepEntity] = useState<DependencyEntityRef | null>(null);
 
   const [settings, setSettings] = useState<GraphSettings>({
     layout: 'cose',
@@ -587,6 +591,20 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
                 {selectedNode.description}
               </Typography>
             )}
+            <Button
+              size="small"
+              startIcon={<AccountTree />}
+              sx={{ mt: 1 }}
+              onClick={() =>
+                setDepEntity({
+                  entityType: selectedNode.type as EntityType,
+                  entityId: selectedNode.id,
+                  entityName: selectedNode.name ?? selectedNode.label ?? selectedNode.id,
+                })
+              }
+            >
+              Voir les dépendances
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -596,6 +614,25 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ projectId }) =>
           <Typography variant="body1">Loading graph data...</Typography>
         </Box>
       )}
+
+      <DependencyPanel
+        projectId={projectId}
+        entity={depEntity}
+        onClose={() => setDepEntity(null)}
+        onNavigate={target => {
+          // The graph currently only renders table nodes (see
+          // /api/projects/:id/graph) — if the target exists on the canvas,
+          // select and center it; otherwise just re-open the panel on the
+          // new entity (e.g. a script or field has no node to jump to).
+          const node = cyRef.current?.getElementById(target.entityId);
+          if (node && node.length > 0) {
+            cyRef.current?.elements().unselect();
+            node.select();
+            cyRef.current?.animate({ center: { eles: node }, zoom: 1.5 }, { duration: 300 });
+          }
+          setDepEntity(target);
+        }}
+      />
     </Box>
   );
 };

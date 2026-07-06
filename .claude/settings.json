@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rm *)",
+      "Bash(npx ts-node -e ' *)"
+    ]
+  },
+  "allowedTools": [
+    "Bash(git rm *)",
+    "Bash(npx ts-node -e ' *)"
+  ]
+}

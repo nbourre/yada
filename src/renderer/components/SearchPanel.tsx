@@ -30,6 +30,8 @@ import {
   Alert,
 } from '@mui/material';
 import { Search, FilterList, Clear, ExpandMore, Visibility, GetApp } from '@mui/icons-material';
+import { DependencyEntityRef } from '../../models';
+import DependencyPanel from './DependencyPanel';
 
 interface SearchPanelProps {
   projectId: string | null;
@@ -81,6 +83,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onNavigate }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [depEntity, setDepEntity] = useState<DependencyEntityRef | null>(null);
 
   useEffect(() => {
     // Load search history from localStorage
@@ -495,13 +498,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onNavigate }) => {
                     <ListItemSecondaryAction>
                       <IconButton
                         edge="end"
-                        onClick={() => {
-                          // table/field/relationship → Visualize (tab 4), others → Dashboard (tab 0)
-                          const tab = ['table', 'field', 'relationship'].includes(result.type)
-                            ? 4
-                            : 0;
-                          onNavigate?.(tab);
-                        }}
+                        onClick={() =>
+                          setDepEntity({
+                            entityType: result.type,
+                            entityId: result.id,
+                            entityName: result.name,
+                          })
+                        }
                         title={`View ${result.type}: ${result.name}`}
                       >
                         <Visibility />
@@ -529,6 +532,19 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onNavigate }) => {
           </Typography>
         </Box>
       )}
+
+      <DependencyPanel
+        projectId={projectId}
+        entity={depEntity}
+        onClose={() => setDepEntity(null)}
+        onNavigate={target => {
+          // Preserves the original eye-icon behavior (BUG-008): table/field/
+          // relationship → Visualize tab, everything else → Dashboard tab.
+          const tab = ['table', 'field', 'relationship'].includes(target.entityType) ? 4 : 0;
+          onNavigate?.(tab);
+          setDepEntity(null);
+        }}
+      />
     </Box>
   );
 };

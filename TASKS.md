@@ -1,7 +1,7 @@
 # YADA — Suivi des tâches
 
 > Fichier de suivi actif. Mis à jour au fur et à mesure du développement.  
-> Dernière mise à jour : 2026-07-03
+> Dernière mise à jour : 2026-07-05
 
 ---
 
@@ -179,6 +179,14 @@
   - Fix : prop `onNavigate` ajoutée à `SearchPanel`, branchée sur `setCurrentTab` dans `App.tsx`
   - table/field/relationship → onglet Visualize (3), script/layout → onglet Dashboard (0)
 
+- [ ] BUG-009 Les fichiers `FMSaveAsXML` (FM Pro 19+) ne parsent RIEN silencieusement
+  - Découvert en travaillant sur T080 : `root.File` (utilisé par `processFileElement`) n'existe pas dans ce format —
+    sa racine réelle est `root.Structure`/`root.Metadata`, une structure complètement différente de `FMPReport`
+  - Résultat actuel : 0 tables/champs/layouts/scripts extraits, mais `project.status` reste `'ready'` sans erreur —
+    silencieux, donc trompeur pour l'utilisateur
+  - Confirmé sur `tests/fixtures/saveAsXML_Gestionnaire iPlus.xml` et `saveAsXML_gip_data.xml`
+  - Rattaché à la Phase 7 (déjà prévue, pas traité ici — hors scope de T080-T085)
+
 ---
 
 ## Phase 8 — Internationalisation (i18n) 💡 À FAIRE (plus tard)
@@ -190,7 +198,7 @@
 
 ---
 
-## Phase 9 — Analyse de dépendances en cascade 💡 À FAIRE (plus tard)
+## Phase 9 — Analyse de dépendances en cascade ✅ COMPLÈTE
 
 ### User Story
 > *En tant que développeur FileMaker, lorsque je clique sur une entité (ex: un champ d'une table),
@@ -204,39 +212,63 @@
 
 ### Tâches
 
-- [ ] T080 Moteur de résolution de dépendances en cascade
+- [x] T080 Moteur de résolution de dépendances en cascade
   - Fichier : `src/services/dependency.service.ts`
   - Entrée : `{ entityType, entityId }`
-  - Sortie : arbre de dépendances `DependencyNode[]` avec profondeur (level 1, 2, 3...)
-  - Algorithme BFS (largeur d'abord) pour garantir l'ordre du plus proche au plus loin
-  - Détecter les cycles (dépendances circulaires)
+  - Sortie : `DependencyGraph` avec `dependencies`/`dependents: DependencyNode[]`, profondeur (level 1, 2, 3...)
+  - Algorithme BFS (largeur d'abord) — garantit l'ordre du plus proche au plus loin, détecte les cycles
+    via un Set de nœuds visités (arête vers un nœud déjà visité = cycle enregistré, pas de re-visite)
+  - Prérequis découvert en cours de route : le parser jetait déjà layouts/scripts/customFunctions/
+    scriptReferences sans les persister — ajout de `createLayout/getLayoutsForProject`,
+    `createScript/getScriptsForProject`, `createCustomFunction/getCustomFunctionsForProject`,
+    `saveScriptReferences/getScriptReferencesForProject` dans `database.service.ts`
+  - Extraction layout→champ ajoutée au parser (`processLayoutCatalog`) : champs directs
+    (`Object[@type=Field]`) et champs dans des portails (`Object[@type=Portal] > PortalObj > FieldList`),
+    y compris portails imbriqués dans des onglets/groupes — donnée absente du modèle auparavant
+    (`Layout.fields` était toujours `[]`)
+  - Bug corrigé au passage : `RelationshipGraph` était traité **après** `LayoutCatalog`, empêchant
+    la résolution nom-de-TO → table de base nécessaire pour retrouver les champs d'un layout
+  - Bug corrigé au passage : les layouts organisés en dossiers (`LayoutCatalog > Group > Layout`)
+    n'étaient pas du tout parcourus (seul `LayoutCatalog > Layout` direct l'était) → 0 layout extrait
+    silencieusement pour toute solution utilisant des dossiers de layouts (cas réel, pas un edge case)
+  - Heuristique de calcul (`field-references-field` / `field-references-function`) à vocabulaire fermé
+    (validée contre les champs/fonctions réels du projet) pour limiter les faux positifs
+  - Tests : `tests/services/dependency.service.test.ts` (12 tests : layout direct/portail, Set Field,
+    chaîne script→script→script, cycle + terminaison, relation bidirectionnelle, heuristique calc
+    vrai/faux positif, référence fonction, troncature maxDepth, entité inconnue, isolation par projet)
 
-- [ ] T081 API endpoint `POST /api/dependencies` côté serveur
-  - Retourne `{ entity, dependencies: DependencyNode[], depth: number }`
+- [x] T081 API endpoint `POST /api/dependencies` côté serveur
+  - Retourne `{ entity, dependencies, dependents, cycles, truncated, depth }` (étend le spec initial
+    avec `dependents`/`cycles`/`truncated`, nécessaires à l'UI)
+  - Tests : `tests/api/dependency-service.test.ts` (7 tests : validations 400, 404 projet/entité, 200)
 
-- [ ] T082 Vue "Dependency Panel" dans l'UI
-  - S'ouvre en panneau latéral ou modal au clic sur une entité
-  - Affichage en arbre ou en liste groupée par niveau (Level 1, Level 2...)
-  - Code couleur par type d'entité (champ, script, layout, relation)
-  - Bouton "Navigate to" pour aller directement à l'entité dépendante
+- [x] T082 Vue "Dependency Panel" dans l'UI
+  - Fichiers : `src/renderer/components/DependencyPanel.tsx`, `src/renderer/utils/entityColors.ts`
+  - Panneau latéral (Drawer), réutilise le langage visuel du `DetailDrawer` de TablesView
+  - Sections "Dépendances"/"Dépendants" groupées par niveau, code couleur par `EntityType`,
+    sélecteur de profondeur (1 à 10 niveaux), alerte si des cycles sont détectés
+  - Bouton "Naviguer vers" sur chaque ligne
 
-- [ ] T083 Intégration dans SearchPanel — clic sur l'œil ouvre le Dependency Panel
-- [ ] T084 Intégration dans GraphVisualization — clic sur un nœud affiche ses dépendances
-
-- [ ] T085 Intégration dans TablesView — clic sur un champ dans le drawer de détail d'une table
+- [x] T083 Intégration dans SearchPanel — clic sur l'œil ouvre le Dependency Panel
+  - Le comportement précédent (BUG-008 : changement d'onglet) devient le "Naviguer vers" du panneau
+- [x] T084 Intégration dans GraphVisualization — clic sur un nœud affiche ses dépendances
+  - Bouton "Voir les dépendances" dans la carte "Node Details" existante ; "Naviguer vers" centre
+    le nœud cible sur le canvas s'il y est déjà (le graphe n'affiche que des tables aujourd'hui),
+    sinon rouvre simplement le panneau sur la nouvelle entité
+- [x] T085 Intégration dans TablesView — clic sur un champ dans le drawer de détail d'une table
   - Fichier : `src/renderer/components/TablesView.tsx`
-  - Contexte : dans le drawer de détail d'une table (`DetailDrawer`), la liste des champs est déjà affichée
-  - Au clic sur un champ, afficher :
-    - Ses détails (nom, type, commentaire, options)
-    - Ses **dépendances** : ce dont le champ dépend (ex: champs référencés dans son calcul, s'il s'agit d'un champ `Calculation`)
-    - Ses **dépendants** : ce qui dépend du champ (layouts qui l'affichent, scripts qui le modifient via `Set Field`, calculs d'autres champs qui le référencent)
-  - Réutilise le moteur de résolution (T080) et idéalement le composant Dependency Panel générique (T082) plutôt que de dupliquer la logique d'affichage
+  - Champ cliquable dans `DetailDrawer` → ouvre le Dependency Panel ; "Naviguer vers" une table ou
+    un champ change la table sélectionnée et rouvre le panneau sur la nouvelle cible
+
+- Vérification GUI : parcours complet testé via un navigateur piloté par Playwright (build réel +
+  serveur Express + clics simulés) sur les trois points d'intégration, avec captures d'écran — voir
+  le fixture `tests/fixtures/CRM_fmp12.xml` (74 tables, 60 layouts, 941 champs sur layouts dont 139
+  via portails) pour un scénario réaliste
 
 ### Prérequis
 - T030 ✅ (étapes de scripts parsées — nécessaire pour les dépendances scripts→scripts)
 - T033 ✅ (cross-références scripts→scripts extraites)
 - T031 ✅ (custom functions — peuvent être des dépendances de calculs)
-- T085 dépend de T080 (moteur) et bénéficie de T082 (composant Dependency Panel réutilisable)
 
 ---
 

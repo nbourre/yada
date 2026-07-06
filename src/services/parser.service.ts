@@ -10,6 +10,7 @@ import {
   Table,
   Field,
   Layout,
+  LayoutField,
   Script,
   ScriptStep,
   Relationship,
@@ -55,12 +56,58 @@ interface DDRBaseTableCatalog {
   BaseTable: DDRBaseTable | DDRBaseTable[];
 }
 
+interface DDRBounds {
+  '@_top'?: string;
+  '@_left'?: string;
+  '@_bottom'?: string;
+  '@_right'?: string;
+}
+
+interface DDRDDRInfoFieldRef {
+  '@_name'?: string;
+  '@_id'?: string;
+  '@_table'?: string;
+}
+
+interface DDRFieldObj {
+  Name?: string; // fallback "Table::field"
+  DDRInfo?: { Field?: DDRDDRInfoFieldRef };
+}
+
+interface DDRPortalFieldList {
+  Field?: DDRDDRInfoFieldRef | DDRDDRInfoFieldRef[];
+}
+
+interface DDRPortalObj {
+  FieldList?: DDRPortalFieldList;
+}
+
+// Layout objects nest arbitrarily deep (fields inside portals inside tab
+// panels/groups), so this type only pins down the parts we read directly —
+// everything else is walked generically as unknown nested container data.
+interface DDRLayoutObject {
+  '@_type'?: string;
+  Bounds?: DDRBounds;
+  FieldObj?: DDRFieldObj;
+  PortalObj?: DDRPortalObj;
+  [key: string]: unknown;
+}
+
 interface DDRLayout {
   '@_name'?: string;
   '@_type'?: string;
+  Object?: DDRLayoutObject | DDRLayoutObject[];
 }
+interface DDRLayoutGroup {
+  Layout?: DDRLayout | DDRLayout[];
+  Group?: DDRLayoutGroup | DDRLayoutGroup[];
+}
+
 interface DDRLayoutCatalog {
-  Layout: DDRLayout | DDRLayout[];
+  Layout?: DDRLayout | DDRLayout[];
+  // Layouts organized into folders are nested under Group instead of being
+  // direct children of LayoutCatalog; groups can themselves nest.
+  Group?: DDRLayoutGroup | DDRLayoutGroup[];
 }
 
 interface DDRScriptStep {
@@ -369,6 +416,13 @@ export class XMLParserService {
       this.processBaseTableCatalog(fileElement.BaseTableCatalog);
     }
 
+    // Process RelationshipGraph before LayoutCatalog: it resolves table
+    // occurrence -> base table names, which layout field extraction needs
+    // (layouts reference fields through occurrence names, not base tables).
+    if (fileElement.RelationshipGraph) {
+      this.processRelationshipGraph(fileElement.RelationshipGraph);
+    }
+
     // Process LayoutCatalog
     if (fileElement.LayoutCatalog) {
       this.processLayoutCatalog(fileElement.LayoutCatalog);
@@ -377,11 +431,6 @@ export class XMLParserService {
     // Process ScriptCatalog
     if (fileElement.ScriptCatalog) {
       this.processScriptCatalog(fileElement.ScriptCatalog);
-    }
-
-    // Process RelationshipGraph
-    if (fileElement.RelationshipGraph) {
-      this.processRelationshipGraph(fileElement.RelationshipGraph);
     }
 
     // Process CustomFunctionCatalog
@@ -461,11 +510,42 @@ export class XMLParserService {
     console.log(`Parser: Processed ${tableArray.length} tables with ${this.fields.length} fields`);
   }
 
-  private processLayoutCatalog(catalog: DDRLayoutCatalog): void {
-    const layouts = catalog.Layout;
-    if (!layouts) return;
+  private collectLayouts(catalog: DDRLayoutCatalog | DDRLayoutGroup): DDRLayout[] {
+    const result: DDRLayout[] = [];
+    if (catalog.Layout) {
+      result.push(...(Array.isArray(catalog.Layout) ? catalog.Layout : [catalog.Layout]));
+    }
+    if (catalog.Group) {
+      const groups = Array.isArray(catalog.Group) ? catalog.Group : [catalog.Group];
+      for (const g of groups) result.push(...this.collectLayouts(g));
+    }
+    return result;
+  }
 
-    const layoutArray = Array.isArray(layouts) ? layouts : [layouts];
+  private processLayoutCatalog(catalog: DDRLayoutCatalog): void {
+    const layoutArray = this.collectLayouts(catalog);
+    if (layoutArray.length === 0) return;
+
+    // "Table::field" -> field id, built once and reused for every layout in
+    // this catalog. Fields are keyed by base table name (BaseTableCatalog
+    // runs first), but layouts reference fields through the table
+    // *occurrence* they're viewed via — so every occurrence name is also
+    // aliased to its base table's fields (RelationshipGraph runs before
+    // LayoutCatalog specifically to make this resolution possible).
+    const fieldIndex = new Map<string, string>();
+    const fieldsByBaseTable = new Map<string, Field[]>();
+    for (const f of this.fields) {
+      fieldIndex.set(`${f.tableName}::${f.name}`, f.id);
+      const list = fieldsByBaseTable.get(f.tableName);
+      if (list) list.push(f);
+      else fieldsByBaseTable.set(f.tableName, [f]);
+    }
+    for (const occ of this.tables) {
+      if (!occ.isOccurrence || !occ.baseTable) continue;
+      for (const f of fieldsByBaseTable.get(occ.baseTable) ?? []) {
+        fieldIndex.set(`${occ.name}::${f.name}`, f.id);
+      }
+    }
 
     layoutArray.forEach((layoutData: DDRLayout) => {
       const layout: Layout = {
@@ -473,7 +553,7 @@ export class XMLParserService {
         projectId: this.currentProject.id!,
         name: layoutData['@_name'] || 'Unnamed Layout',
         type: 'form' as LayoutType,
-        fields: [],
+        fields: this.extractLayoutFields(layoutData, fieldIndex),
         parts: [],
         scripts: [],
       };
@@ -483,6 +563,116 @@ export class XMLParserService {
     });
 
     console.log(`Parser: Processed ${layoutArray.length} layouts`);
+  }
+
+  /**
+   * Layout objects nest arbitrarily deep — a field can sit directly on the
+   * layout, or inside a portal, itself inside a tab panel or group. Fields
+   * placed on layouts aren't otherwise exposed by the DDR anywhere else, so
+   * this walk recurses into every nested object rather than assuming a flat
+   * top-level `Object` list.
+   */
+  private extractLayoutFields(
+    layoutData: DDRLayout,
+    fieldIndex: Map<string, string>
+  ): LayoutField[] {
+    const result: LayoutField[] = [];
+    this.walkLayoutObjects(layoutData.Object, result, fieldIndex);
+    return result;
+  }
+
+  private walkLayoutObjects(
+    node: unknown,
+    sink: LayoutField[],
+    fieldIndex: Map<string, string>
+  ): void {
+    if (node === null || typeof node !== 'object') return;
+
+    if (Array.isArray(node)) {
+      for (const item of node) this.walkLayoutObjects(item, sink, fieldIndex);
+      return;
+    }
+
+    const obj = node as DDRLayoutObject;
+
+    if (obj['@_type'] === 'Field') {
+      const lf = this.buildDirectLayoutField(obj, fieldIndex);
+      if (lf) sink.push(lf);
+    } else if (obj['@_type'] === 'Portal') {
+      this.extractPortalFields(obj, sink, fieldIndex);
+    }
+
+    // Recurse into every nested property to reach objects buried inside
+    // portals, tab panels, groups, etc. (own Field/Portal objects were
+    // already handled above; this also finds objects nested further down).
+    for (const key of Object.keys(obj)) {
+      if (key.startsWith('@_')) continue;
+      this.walkLayoutObjects(obj[key], sink, fieldIndex);
+    }
+  }
+
+  private buildDirectLayoutField(
+    obj: DDRLayoutObject,
+    fieldIndex: Map<string, string>
+  ): LayoutField | null {
+    const ddrField = obj.FieldObj?.DDRInfo?.Field;
+    let table = ddrField?.['@_table'];
+    let name = ddrField?.['@_name'];
+
+    if (!table || !name) {
+      const fallback = obj.FieldObj?.Name; // "Table::field"
+      const parts = fallback?.split('::');
+      if (parts && parts.length === 2) {
+        table = table || parts[0];
+        name = name || parts[1];
+      }
+    }
+
+    if (!name) return null;
+
+    return {
+      fieldId: (table && fieldIndex.get(`${table}::${name}`)) || '',
+      fieldName: name,
+      ...this.boundsToRect(obj.Bounds),
+    };
+  }
+
+  private extractPortalFields(
+    obj: DDRLayoutObject,
+    sink: LayoutField[],
+    fieldIndex: Map<string, string>
+  ): void {
+    const rawFields = obj.PortalObj?.FieldList?.Field;
+    if (!rawFields) return;
+
+    const fieldArray = Array.isArray(rawFields) ? rawFields : [rawFields];
+    const rect = this.boundsToRect(obj.Bounds); // no per-field bounds inside a portal
+
+    for (const f of fieldArray) {
+      const table = f['@_table'];
+      const name = f['@_name'];
+      if (!name) continue;
+
+      sink.push({
+        fieldId: (table && fieldIndex.get(`${table}::${name}`)) || '',
+        fieldName: name,
+        ...rect,
+        viaPortal: true,
+      });
+    }
+  }
+
+  private boundsToRect(bounds?: DDRBounds): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const top = parseFloat(bounds?.['@_top'] || '0');
+    const left = parseFloat(bounds?.['@_left'] || '0');
+    const bottom = parseFloat(bounds?.['@_bottom'] || '0');
+    const right = parseFloat(bounds?.['@_right'] || '0');
+    return { x: left, y: top, width: right - left, height: bottom - top };
   }
 
   private processScriptCatalog(catalog: DDRScriptCatalog): void {
@@ -1014,7 +1204,32 @@ export class XMLParserService {
         await databaseService.createField(field);
       }
 
-      // TODO: persist layouts, scripts, relationships, custom functions, value lists, privileges to DB
+      // Save layouts
+      for (const layout of this.layouts) {
+        await databaseService.createLayout(layout);
+      }
+
+      // Save scripts
+      for (const script of this.scripts) {
+        await databaseService.createScript(script);
+      }
+
+      // Save custom functions
+      for (const fn of this.customFunctions) {
+        await databaseService.createCustomFunction(fn);
+      }
+
+      // Save script -> script cross-references (already computed by extractScriptReferences)
+      await databaseService.saveScriptReferences(
+        this.currentProject.id!,
+        this.scriptReferences.map(r => ({
+          id: this.generateId(),
+          projectId: this.currentProject.id!,
+          ...r,
+        }))
+      );
+
+      // TODO: persist value lists, privilege sets to DB
       console.log(`Parsed ${this.layouts.length} layouts`);
       console.log(
         `Parsed ${this.scripts.length} scripts (${this.scriptReferences.length} cross-references)`

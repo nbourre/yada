@@ -136,6 +136,7 @@ export interface LayoutField {
   width: number;
   height: number;
   formatting?: FieldFormatting;
+  viaPortal?: boolean;
 }
 
 export interface FieldFormatting {
@@ -164,6 +165,15 @@ export interface ScriptStep {
   options?: Record<string, any>;
   comment?: string;
   enabled: boolean;
+}
+
+// Script -> script call graph, extracted from "Perform Script" steps at parse time.
+export interface ScriptReference {
+  id: string;
+  projectId: string;
+  callerScriptName: string;
+  targetScriptName: string;
+  targetFile?: string;
 }
 
 export interface Relationship extends BaseEntity {
@@ -324,6 +334,52 @@ export interface GraphLayout {
   algorithm: 'force' | 'hierarchical' | 'circular' | 'grid';
   options?: Record<string, any>;
 }
+
+// Dependency analysis (cascading "what does X depend on / what depends on X").
+// A dedicated edge type is needed here rather than reusing GraphEdge/RelationshipType,
+// since dependency semantics (script calls script, layout shows field, ...) don't
+// map onto FileMaker relationship types at all.
+export type DependencyEdgeType =
+  | 'relationship-key'
+  | 'script-calls-script'
+  | 'script-sets-field'
+  | 'script-navigates-layout'
+  | 'layout-shows-field'
+  | 'layout-shows-field-via-portal'
+  | 'field-references-field'
+  | 'field-references-function';
+
+export interface DependencyEntityRef {
+  entityType: EntityType;
+  entityId: string;
+  entityName: string;
+  tableName?: string;
+}
+
+export interface DependencyEdge {
+  from: DependencyEntityRef;
+  to: DependencyEntityRef;
+  type: DependencyEdgeType;
+  detail?: string;
+}
+
+export interface DependencyNode extends DependencyEntityRef {
+  level: number; // 1 = direct neighbor, 2 = via one intermediate, ...
+  edgeType: DependencyEdgeType;
+  via?: DependencyEntityRef; // the parent node in the BFS tree that led here
+  detail?: string;
+}
+
+export interface DependencyGraph {
+  root: DependencyEntityRef | null;
+  dependencies: DependencyNode[]; // outgoing: things root depends on
+  dependents: DependencyNode[]; // incoming: things that depend on root
+  cycles: DependencyEdge[]; // back-edges detected during BFS
+  truncated: boolean; // true if maxDepth was hit before exhausting the graph
+  depth: number; // maxDepth actually used
+}
+
+export type DependencyDirection = 'dependencies' | 'dependents' | 'both';
 
 // Export Types
 export interface ExportOptions {

@@ -16,11 +16,13 @@ import {
   ProjectStatistics,
   ProjectMetadata,
   ApiResponse,
+  EntityType,
 } from '../models';
 import { databaseService } from './database.service';
 import { xmlParserService } from './parser.service';
 import { searchService } from './search.service';
 import { performanceMetricsService } from './performance.service';
+import { dependencyService } from './dependency.service';
 
 export class ApiService {
   private app: express.Application;
@@ -311,6 +313,84 @@ export class ApiService {
       } catch (error) {
         console.error('Search export error:', error);
         this.sendError(res, `Search export error: ${error}`, 500, 'INTERNAL_ERROR');
+      }
+    });
+
+    // Cascading dependency resolution (T081)
+    this.app.post('/api/dependencies', async (req, res) => {
+      try {
+        const { projectId, entityType, entityId, direction, maxDepth } = req.body;
+
+        if (!projectId) {
+          return this.sendError(res, 'Missing required field: projectId', 400, 'VALIDATION_ERROR');
+        }
+        if (!entityType) {
+          return this.sendError(res, 'Missing required field: entityType', 400, 'VALIDATION_ERROR');
+        }
+        if (!entityId) {
+          return this.sendError(res, 'Missing required field: entityId', 400, 'VALIDATION_ERROR');
+        }
+
+        const validEntityTypes: EntityType[] = [
+          'table',
+          'field',
+          'layout',
+          'script',
+          'custom_function',
+        ];
+        if (!validEntityTypes.includes(entityType)) {
+          return this.sendError(
+            res,
+            `Invalid entityType: ${entityType}. Must be one of: ${validEntityTypes.join(', ')}`,
+            400,
+            'VALIDATION_ERROR'
+          );
+        }
+
+        const validDirections = ['dependencies', 'dependents', 'both'];
+        if (direction && !validDirections.includes(direction)) {
+          return this.sendError(
+            res,
+            `Invalid direction: ${direction}. Must be one of: ${validDirections.join(', ')}`,
+            400,
+            'VALIDATION_ERROR'
+          );
+        }
+
+        const project = await databaseService.getProject(projectId);
+        if (!project) {
+          return this.sendError(res, `Project not found: ${projectId}`, 404, 'PROJECT_NOT_FOUND');
+        }
+
+        const graph = await dependencyService.resolveDependencies(
+          projectId,
+          entityType,
+          entityId,
+          direction ?? 'both',
+          maxDepth ?? 10
+        );
+
+        if (!graph.root) {
+          return this.sendError(
+            res,
+            `Entity not found: ${entityType}/${entityId}`,
+            404,
+            'ENTITY_NOT_FOUND'
+          );
+        }
+
+        res.json({
+          success: true,
+          entity: graph.root,
+          dependencies: graph.dependencies,
+          dependents: graph.dependents,
+          cycles: graph.cycles,
+          truncated: graph.truncated,
+          depth: graph.depth,
+        });
+      } catch (error) {
+        console.error('Dependency resolution error:', error);
+        this.sendError(res, `Dependency resolution error: ${error}`, 500, 'INTERNAL_ERROR');
       }
     });
 
