@@ -22,6 +22,7 @@ import {
   Paper,
   TextField,
   InputAdornment,
+  TableSortLabel,
 } from '@mui/material';
 import {
   DataGrid,
@@ -112,24 +113,94 @@ function FieldTypeChip({ type }: { type: string }) {
   );
 }
 
+// Genre du champ (Normal/Calculé/Résumé) — attribut DDR distinct du type de
+// donnée (`dataType`). N'affiche rien pour "normal" pour ne pas encombrer
+// le cas courant.
+const FIELD_KIND_LABEL: Record<string, string> = {
+  calculated: 'Calculé',
+  summary: 'Résumé',
+};
+const FIELD_KIND_COLOR: Record<string, string> = {
+  calculated: '#5d4037',
+  summary: '#455a64',
+};
+
+function FieldKindChip({ kind }: { kind: string }) {
+  if (kind === 'normal' || !FIELD_KIND_LABEL[kind]) return null;
+  return (
+    <Chip
+      label={FIELD_KIND_LABEL[kind]}
+      size="small"
+      sx={{
+        bgcolor: FIELD_KIND_COLOR[kind],
+        color: '#fff',
+        fontSize: '0.7rem',
+        height: 20,
+        fontWeight: 500,
+      }}
+    />
+  );
+}
+
+type FieldSortColumn = 'name' | 'type' | 'fieldKind' | 'options' | 'comment';
+
+function fieldSortValue(field: Field, column: FieldSortColumn): string {
+  switch (column) {
+    case 'name':
+      return field.name.toLowerCase();
+    case 'type':
+      return field.type.toLowerCase();
+    case 'fieldKind':
+      return field.fieldKind;
+    case 'options': {
+      const flags = [
+        field.options?.indexed && 'idx',
+        field.options?.required && 'req',
+        field.options?.unique && 'uniq',
+        field.options?.global && 'global',
+        field.options?.repeating && 'rep',
+      ].filter(Boolean);
+      return flags.join(',');
+    }
+    case 'comment':
+      return (field.comment ?? '').toLowerCase();
+  }
+}
+
 function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
   const [fieldFilter, setFieldFilter] = useState('');
+  const [sortColumn, setSortColumn] = useState<FieldSortColumn>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     setFieldFilter('');
   }, [table]);
+
+  const handleSort = (column: FieldSortColumn) => {
+    if (sortColumn === column) {
+      setSortDir(dir => (dir === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDir('asc');
+    }
+  };
 
   if (!table) return null;
 
   const isOccurrence = table.isOccurrence ?? false;
   const baseTableName = table.baseTable ?? table.sourceTable ?? '';
 
-  const filteredFields = (table.fields ?? []).filter(
-    f =>
-      f.name.toLowerCase().includes(fieldFilter.toLowerCase()) ||
-      f.type.toLowerCase().includes(fieldFilter.toLowerCase()) ||
-      (f.comment ?? '').toLowerCase().includes(fieldFilter.toLowerCase())
-  );
+  const filteredFields = (table.fields ?? [])
+    .filter(
+      f =>
+        f.name.toLowerCase().includes(fieldFilter.toLowerCase()) ||
+        f.type.toLowerCase().includes(fieldFilter.toLowerCase()) ||
+        (f.comment ?? '').toLowerCase().includes(fieldFilter.toLowerCase())
+    )
+    .sort((a, b) => {
+      const cmp = fieldSortValue(a, sortColumn).localeCompare(fieldSortValue(b, sortColumn));
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
 
   // Relations impliquant cette table (par nom)
   const relatedRels = table.relationships ?? [];
@@ -251,16 +322,31 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow sx={{ '& th': { bgcolor: 'action.hover', fontWeight: 600 } }}>
-                <TableCell>Nom</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Options</TableCell>
-                <TableCell>Commentaire</TableCell>
+                {(
+                  [
+                    ['name', 'Nom'],
+                    ['type', 'Type'],
+                    ['fieldKind', 'Genre'],
+                    ['options', 'Options'],
+                    ['comment', 'Commentaire'],
+                  ] as [FieldSortColumn, string][]
+                ).map(([column, label]) => (
+                  <TableCell key={column}>
+                    <TableSortLabel
+                      active={sortColumn === column}
+                      direction={sortColumn === column ? sortDir : 'asc'}
+                      onClick={() => handleSort(column)}
+                    >
+                      {label}
+                    </TableSortLabel>
+                  </TableCell>
+                ))}
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredFields.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                  <TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                     {(table.fields?.length ?? 0) === 0 ? 'Aucun champ' : 'Aucun résultat'}
                   </TableCell>
                 </TableRow>
@@ -288,6 +374,9 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
                     </TableCell>
                     <TableCell>
                       <FieldTypeChip type={field.type} />
+                    </TableCell>
+                    <TableCell>
+                      <FieldKindChip kind={field.fieldKind} />
                     </TableCell>
                     <TableCell>
                       <Box display="flex" gap={0.5} flexWrap="wrap">

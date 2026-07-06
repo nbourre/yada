@@ -16,6 +16,7 @@ import {
   Relationship,
   CustomFunction,
   FieldType,
+  FieldKind,
   LayoutType,
   RelationshipType,
   ProjectStatistics,
@@ -35,6 +36,7 @@ interface DDRField {
   '@_name'?: string;
   '@_dataType'?: string;
   '@_type'?: string;
+  '@_fieldType'?: string;
   Calculation?: { '#text'?: string } | string;
   Comment?: { '#text'?: string } | string;
 }
@@ -486,15 +488,10 @@ export class XMLParserService {
             tableName: table.name,
             name: fieldData['@_name'] || 'Unnamed Field',
             type: this.mapFieldType(fieldData['@_dataType'] || fieldData['@_type'] || 'text'),
+            fieldKind: this.mapFieldKind(fieldData['@_fieldType']),
             options: {},
-            calculation:
-              typeof fieldData.Calculation === 'object'
-                ? fieldData.Calculation['#text']
-                : fieldData.Calculation,
-            comment:
-              typeof fieldData.Comment === 'object'
-                ? fieldData.Comment['#text']
-                : fieldData.Comment,
+            calculation: this.extractDDRText(fieldData.Calculation),
+            comment: this.extractDDRText(fieldData.Comment),
           };
 
           table.fields.push(field);
@@ -689,11 +686,7 @@ export class XMLParserService {
         projectId: this.currentProject.id!,
         name: scriptData['@_name'] || 'Unnamed Script',
         steps,
-        comment:
-          scriptData['@_comment'] ||
-          (typeof scriptData.Comment === 'object'
-            ? scriptData.Comment?.['#text']
-            : scriptData.Comment),
+        comment: scriptData['@_comment'] || this.extractDDRText(scriptData.Comment),
       };
 
       this.scripts.push(script);
@@ -746,9 +739,8 @@ export class XMLParserService {
         case 'Else If':
         case 'Exit Script':
         case 'Halt Script': {
-          const calc = s.Calculation;
           step.options = {
-            calculation: typeof calc === 'object' ? calc?.['#text'] || '' : calc || '',
+            calculation: this.extractDDRText(s.Calculation) || '',
           };
           break;
         }
@@ -1029,11 +1021,8 @@ export class XMLParserService {
           .map(p => p.trim())
           .filter(Boolean)
           .map(p => ({ name: p })),
-        calculation:
-          typeof cf.Calculation === 'object'
-            ? cf.Calculation?.['#text'] || ''
-            : cf.Calculation || '',
-        comment: typeof cf.Comment === 'object' ? cf.Comment?.['#text'] : cf.Comment,
+        calculation: this.extractDDRText(cf.Calculation) || '',
+        comment: this.extractDDRText(cf.Comment),
       };
       this.customFunctions.push(fn);
       this.stats.customFunctionCount++;
@@ -1053,7 +1042,7 @@ export class XMLParserService {
       const rawValues = vl.ValueListItems?.Value;
       const values: string[] = rawValues
         ? (Array.isArray(rawValues) ? rawValues : [rawValues])
-            .map(v => v['#text'] || '')
+            .map(v => this.extractDDRText(v) || '')
             .filter(Boolean)
         : [];
 
@@ -1128,6 +1117,16 @@ export class XMLParserService {
     return typeMap[type.toLowerCase()] || 'text';
   }
 
+  private mapFieldKind(fieldType: string | undefined): FieldKind {
+    const kindMap: Record<string, FieldKind> = {
+      normal: 'normal',
+      calculated: 'calculated',
+      summary: 'summary',
+    };
+
+    return kindMap[(fieldType || '').toLowerCase()] || 'normal';
+  }
+
   private mapLayoutType(type: string): LayoutType {
     const typeMap: Record<string, LayoutType> = {
       form: 'form',
@@ -1190,6 +1189,22 @@ export class XMLParserService {
 
   private generateId(): string {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
+  }
+
+  /**
+   * Extracts a text node's value as a string. fast-xml-parser's default
+   * value-parsing turns purely-numeric or boolean-looking tag content (e.g.
+   * a calculation formula that's just "1") into a JS number/boolean instead
+   * of a string, and `typeof x === 'object'` doesn't catch that — so every
+   * caller needs this instead of trusting the raw parsed value's type.
+   */
+  private extractDDRText(value: unknown): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'object') {
+      const text = (value as { '#text'?: unknown })['#text'];
+      return text === undefined || text === null ? undefined : String(text);
+    }
+    return String(value);
   }
 
   private async saveParsedDataToDatabase(): Promise<void> {

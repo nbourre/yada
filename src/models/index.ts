@@ -62,6 +62,10 @@ export interface Field extends BaseEntity {
   tableId: string;
   tableName: string;
   type: FieldType;
+  // DDR's `fieldType` attribute — distinct from `type` (the storage/result
+  // data type): whether the field itself is a plain stored field, a
+  // calculation, or a summary field.
+  fieldKind: FieldKind;
   options: FieldOptions;
   calculation?: string;
   comment?: string;
@@ -69,6 +73,8 @@ export interface Field extends BaseEntity {
   autoEnter?: AutoEnterOptions;
   storage?: StorageOptions;
 }
+
+export type FieldKind = 'normal' | 'calculated' | 'summary';
 
 export type FieldType =
   | 'text'

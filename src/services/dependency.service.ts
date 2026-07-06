@@ -284,8 +284,8 @@ export class DependencyService {
     const fieldRefPattern = /([A-Za-z_][\w ]*)::([A-Za-z_]\w*)/g;
     const functionCallPattern = /\b([A-Za-z_]\w*)\s*\(/g;
 
-    const scanCalculation = (source: DependencyEntityRef, calculation: string | undefined) => {
-      if (!calculation) return;
+    const scanCalculation = (source: DependencyEntityRef, calculation: unknown) => {
+      if (!calculation || typeof calculation !== 'string') return;
 
       for (const match of calculation.matchAll(fieldRefPattern)) {
         const [, table, name] = match;

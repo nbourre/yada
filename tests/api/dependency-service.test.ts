@@ -65,6 +65,7 @@ describe('POST /api/dependencies', () => {
       tableName: table.name,
       name: 'Email',
       type: 'text',
+      fieldKind: 'normal',
       options: {},
     });
 

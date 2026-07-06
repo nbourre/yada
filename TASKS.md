@@ -142,6 +142,18 @@
 - [ ] T047 Export : rapport "champs non utilisés dans les layouts"
 - [ ] T048 Snapshot diff : comparaison de deux versions du même DDR
 
+- [x] T049 TablesView : colonne "Type de champ" (Normal/Calculé/Résumé)
+  - Le XML DDR porte deux attributs distincts sur `<Field>` : `dataType` (déjà extrait → `Field.type`)
+    et `fieldType` (`Normal`/`Calculated`/`Summary`, actuellement ignoré)
+  - Extrait dans le parser → nouveau champ `Field.fieldKind` (`'normal'|'calculated'|'summary'`)
+  - Nouvelle colonne "Genre" dans le tableau des champs du drawer de détail (`TablesView.tsx`),
+    chip affiché seulement quand ≠ "normal" pour ne pas encombrer le cas courant
+
+- [x] T096 TablesView : tri sur les en-têtes de colonnes du tableau des champs
+  - Fichier : `src/renderer/components/TablesView.tsx`
+  - Chaque en-tête (Nom, Type, Genre, Options, Commentaire) est cliquable via `TableSortLabel` (MUI),
+    tri ascendant/descendant en alternance, colonne Options triée par combinaison de flags actifs
+
 ---
 
 ## Phase 6 — Qualité & Tests 📋 EN ATTENTE

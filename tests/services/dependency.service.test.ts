@@ -40,6 +40,7 @@ function makeField(projectId: string, tableName: string, overrides: Partial<Fiel
     tableName,
     name: 'Field',
     type: 'text',
+    fieldKind: 'normal',
     options: {},
     ...overrides,
   };
@@ -290,6 +291,32 @@ describe('dependencyService.resolveDependencies', () => {
       entityId: fn.id,
       edgeType: 'field-references-function',
     });
+  });
+
+  it('does not crash when a calculation comes back as a non-string value (fast-xml-parser numeric coercion)', async () => {
+    // Regression test: fast-xml-parser converts purely-numeric tag content
+    // (e.g. a calc formula that's literally "1") into a JS number, and the
+    // parser's object-vs-text check doesn't catch that — the field's
+    // `calculation` can end up as a number at runtime despite the `string`
+    // type declaration. This must degrade gracefully, not throw.
+    const pid = id('proj');
+    const table = makeTable(pid, { name: 'Line' });
+    await databaseService.createTable(table);
+    const total = makeField(pid, 'Line', {
+      name: 'Total',
+      type: 'calculation',
+      calculation: 1 as unknown as string,
+    });
+    await databaseService.createField(total);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'field',
+      total.id,
+      'dependencies'
+    );
+
+    expect(graph.dependencies).toHaveLength(0);
   });
 
   it('does not create a spurious edge for a calculation referencing a nonexistent field (false-positive guard)', async () => {
