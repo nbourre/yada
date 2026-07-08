@@ -539,8 +539,14 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onNavigate }) => {
         onClose={() => setDepEntity(null)}
         onNavigate={target => {
           // Preserves the original eye-icon behavior (BUG-008): table/field/
-          // relationship → Visualize tab, everything else → Dashboard tab.
-          const tab = ['table', 'field', 'relationship'].includes(target.entityType) ? 4 : 0;
+          // relationship → Visualize tab, script → Scripts tab, everything
+          // else → Dashboard tab. Tab indices: 0 Dashboard, 1 Upload,
+          // 2 Tables, 3 Scripts, 4 Search, 5 Visualize, 6 Export.
+          const tab = ['table', 'field', 'relationship'].includes(target.entityType)
+            ? 5
+            : target.entityType === 'script'
+              ? 3
+              : 0;
           onNavigate?.(tab);
           setDepEntity(null);
         }}

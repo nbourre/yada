@@ -53,6 +53,9 @@ export interface Table extends BaseEntity {
   baseTableId?: string; // id from TableList for occurrences
   isOccurrence?: boolean; // true if this is a table occurrence (TO), false if base table
   recordCount?: number;
+  // Set when this occurrence's base table lives in another file of a
+  // multi-file solution (resolved via <FileReference> + ExternalDataSourcesCatalog).
+  externalFile?: string;
   fields: Field[];
   relationships: Relationship[];
 }
@@ -68,6 +71,12 @@ export interface Field extends BaseEntity {
   fieldKind: FieldKind;
   options: FieldOptions;
   calculation?: string;
+  // FileMaker's own disambiguated parse of `calculation` (DDR's
+  // <DisplayCalculation><Chunk type="FieldRef|FunctionRef">) — authoritative,
+  // unlike a text-regex guess: every FieldRef chunk is definitely a real
+  // field reference, never a false positive from a string literal.
+  calculationFieldRefs?: CalcFieldReference[];
+  calculationFunctionRefs?: string[];
   comment?: string;
   validation?: ValidationRule[];
   autoEnter?: AutoEnterOptions;
@@ -75,6 +84,13 @@ export interface Field extends BaseEntity {
 }
 
 export type FieldKind = 'normal' | 'calculated' | 'summary';
+
+// A field reference disambiguated by FileMaker's own calculation parser
+// (DisplayCalculation Chunk[@type=FieldRef]), not a text-pattern guess.
+export interface CalcFieldReference {
+  table: string;
+  name: string;
+}
 
 export type FieldType =
   | 'text'
@@ -168,6 +184,10 @@ export interface Script extends BaseEntity {
 
 export interface ScriptStep {
   step: string;
+  // FileMaker's own human-readable rendering of the step (from <StepText>),
+  // e.g. "Set Variable [ $x; Value:1 ]" — used for display, covers every
+  // step type uniformly without a hand-written renderer per step kind.
+  text?: string;
   options?: Record<string, any>;
   comment?: string;
   enabled: boolean;
@@ -206,6 +226,8 @@ export interface CustomFunction extends BaseEntity {
   projectId: string;
   parameters: FunctionParameter[];
   calculation: string;
+  calculationFieldRefs?: CalcFieldReference[];
+  calculationFunctionRefs?: string[];
   comment?: string;
 }
 
@@ -352,8 +374,11 @@ export type DependencyEdgeType =
   | 'script-navigates-layout'
   | 'layout-shows-field'
   | 'layout-shows-field-via-portal'
+  | 'layout-triggers-script'
   | 'field-references-field'
-  | 'field-references-function';
+  | 'field-references-function'
+  | 'script-references-field'
+  | 'script-references-function';
 
 export interface DependencyEntityRef {
   entityType: EntityType;
@@ -374,6 +399,10 @@ export interface DependencyNode extends DependencyEntityRef {
   edgeType: DependencyEdgeType;
   via?: DependencyEntityRef; // the parent node in the BFS tree that led here
   detail?: string;
+  // True when this reference was confidently detected (FileMaker's own
+  // FieldRef parse) but doesn't resolve to a known entity in this project —
+  // typically a field defined in another file of a multi-file solution.
+  unresolved?: boolean;
 }
 
 export interface DependencyGraph {

@@ -13,6 +13,7 @@ import {
   Field,
   Script,
   CustomFunction,
+  CalcFieldReference,
   DependencyEdge,
   DependencyEdgeType,
   DependencyEntityRef,
@@ -65,14 +66,14 @@ export class DependencyService {
     let truncated = false;
 
     if (direction === 'dependencies' || direction === 'both') {
-      const r = this.bfs(rootKey, index.outEdges, maxDepth, edge => edge.to);
+      const r = this.bfs(rootKey, index.outEdges, maxDepth, edge => edge.to, index.refByKey);
       dependencies.push(...r.nodes);
       cycles.push(...r.cycles);
       truncated = truncated || r.truncated;
     }
 
     if (direction === 'dependents' || direction === 'both') {
-      const r = this.bfs(rootKey, index.inEdges, maxDepth, edge => edge.from);
+      const r = this.bfs(rootKey, index.inEdges, maxDepth, edge => edge.from, index.refByKey);
       dependents.push(...r.nodes);
       cycles.push(...r.cycles);
       truncated = truncated || r.truncated;
@@ -85,7 +86,8 @@ export class DependencyService {
     rootKey: string,
     edgesByKey: Map<string, DependencyEdge[]>,
     maxDepth: number,
-    neighborOf: (edge: DependencyEdge) => DependencyEntityRef
+    neighborOf: (edge: DependencyEdge) => DependencyEntityRef,
+    refByKey: Map<string, DependencyEntityRef>
   ): { nodes: DependencyNode[]; cycles: DependencyEdge[]; truncated: boolean } {
     const nodes: DependencyNode[] = [];
     const cycles: DependencyEdge[] = [];
@@ -117,7 +119,13 @@ export class DependencyService {
         }
 
         visited.add(neighborKey);
-        nodes.push({ ...neighbor, level: nextLevel, edgeType: edge.type, detail: edge.detail });
+        nodes.push({
+          ...neighbor,
+          level: nextLevel,
+          edgeType: edge.type,
+          detail: edge.detail,
+          unresolved: !refByKey.has(neighborKey),
+        });
         queue.push({ key: neighborKey, level: nextLevel });
       }
     }
@@ -257,7 +265,8 @@ export class DependencyService {
       }
     }
 
-    // 3. Layouts -> layout-shows-field / layout-shows-field-via-portal.
+    // 3. Layouts -> layout-shows-field / layout-shows-field-via-portal /
+    // layout-triggers-script (script triggers + button "Perform Script").
     for (const layout of layouts) {
       const layoutRef: DependencyEntityRef = {
         entityType: 'layout',
@@ -274,40 +283,139 @@ export class DependencyService {
           lf.viaPortal ? 'layout-shows-field-via-portal' : 'layout-shows-field'
         );
       }
+      for (const scriptName of layout.scripts) {
+        const script = scriptByName.get(scriptName);
+        if (script) pushEdge(layoutRef, scriptRef(script), 'layout-triggers-script');
+      }
     }
 
-    // 4. Calculation-text heuristic: "Table::field" and "functionName(" are
-    // only accepted as real references when they resolve against the
-    // project's own vocabulary — this is a closed-vocabulary regex match,
-    // not a free-text search, specifically to cut false positives (it
-    // cannot catch dynamic/indirect references like GetField(varName)).
-    const fieldRefPattern = /([A-Za-z_][\w ]*)::([A-Za-z_]\w*)/g;
-    const functionCallPattern = /\b([A-Za-z_]\w*)\s*\(/g;
+    // 4. Calculation references: FileMaker's own disambiguated parse of the
+    // formula (DisplayCalculation Chunk[@type=FieldRef|FunctionRef], parsed
+    // into Field/CustomFunction/ScriptStep.calculationFieldRefs /
+    // .calculationFunctionRefs / .options.fieldRefs / .options.functionRefs)
+    // is authoritative — every FieldRef chunk is definitely a real field
+    // reference, so unlike a text-regex guess it can't misfire on a string
+    // literal like "Please choose A::B". A field reference that doesn't
+    // resolve in this project is still surfaced (as `unresolved`) rather
+    // than silently dropped — most often a field defined in another file of
+    // a multi-file solution, which this per-project graph can't see into.
+    // Function references are NOT surfaced when unresolved: FunctionRef
+    // chunks include FileMaker's built-ins (If, Get, Case, ...) as well as
+    // custom functions, and there's no way to tell them apart here, so
+    // surfacing every miss would mostly be built-in-function noise.
+    const unresolvedFieldRef = (table: string, name: string): DependencyEntityRef => ({
+      entityType: 'field',
+      entityId: `unresolved:${table}::${name}`,
+      entityName: name,
+      tableName: table,
+    });
 
-    const scanCalculation = (source: DependencyEntityRef, calculation: unknown) => {
-      if (!calculation || typeof calculation !== 'string') return;
-
-      for (const match of calculation.matchAll(fieldRefPattern)) {
-        const [, table, name] = match;
-        const referenced = fieldByKey.get(`${table}::${name}`);
-        if (referenced && refKey(fieldRef(referenced)) !== refKey(source)) {
-          pushEdge(source, fieldRef(referenced), 'field-references-field', match[0]);
-        }
-      }
-      for (const match of calculation.matchAll(functionCallPattern)) {
-        const fnName = match[1];
-        const referenced = customFunctionByName.get(fnName);
-        if (referenced && refKey(fnRef(referenced)) !== refKey(source)) {
-          pushEdge(source, fnRef(referenced), 'field-references-function', match[0]);
-        }
+    const applyFieldRefs = (
+      source: DependencyEntityRef,
+      refs: CalcFieldReference[],
+      edgeType: DependencyEdgeType,
+      surfaceUnresolved: boolean
+    ) => {
+      for (const ref of refs) {
+        const resolved = fieldByKey.get(`${ref.table}::${ref.name}`);
+        if (!resolved && !surfaceUnresolved) continue; // low-confidence regex guess — drop silently
+        const target = resolved ? fieldRef(resolved) : unresolvedFieldRef(ref.table, ref.name);
+        if (refKey(target) === refKey(source)) continue;
+        // The occurrence's own <FileReference>, resolved against
+        // ExternalDataSourcesCatalog at parse time, names the actual file
+        // this field is defined in — far more actionable than a generic
+        // "not found" when the reference is a cross-file one.
+        const externalFile = tableByName.get(ref.table)?.externalFile;
+        const detail = resolved
+          ? undefined
+          : externalFile
+            ? `Probablement défini dans "${externalFile}" (autre fichier de la solution)`
+            : 'Référence non résolue dans ce fichier';
+        pushEdge(source, target, edgeType, detail);
       }
     };
 
+    const applyFunctionRefs = (
+      source: DependencyEntityRef,
+      names: string[],
+      edgeType: DependencyEdgeType
+    ) => {
+      for (const name of names) {
+        const resolved = customFunctionByName.get(name);
+        if (!resolved) continue; // likely a built-in — see note above
+        if (refKey(fnRef(resolved)) === refKey(source)) continue;
+        pushEdge(source, fnRef(resolved), edgeType);
+      }
+    };
+
+    // Fallback for callers with no structured refs at all (e.g. data seeded
+    // directly in tests without DisplayCalculation) — best-effort regex.
+    const fieldRefPattern = /([A-Za-z_][\w ]*)::([A-Za-z_]\w*)/g;
+    const functionCallPattern = /\b([A-Za-z_]\w*)\s*\(/g;
+    const scanCalculationText = (
+      source: DependencyEntityRef,
+      calculation: string,
+      fieldEdgeType: DependencyEdgeType,
+      functionEdgeType: DependencyEdgeType
+    ) => {
+      const fieldRefs: CalcFieldReference[] = [];
+      for (const match of calculation.matchAll(fieldRefPattern)) {
+        fieldRefs.push({ table: match[1], name: match[2] });
+      }
+      applyFieldRefs(source, fieldRefs, fieldEdgeType, false);
+
+      const functionRefs: string[] = [];
+      for (const match of calculation.matchAll(functionCallPattern)) {
+        functionRefs.push(match[1]);
+      }
+      applyFunctionRefs(source, functionRefs, functionEdgeType);
+    };
+
     for (const field of fields) {
-      if (field.calculation) scanCalculation(fieldRef(field), field.calculation);
+      const source = fieldRef(field);
+      if (field.calculationFieldRefs || field.calculationFunctionRefs) {
+        applyFieldRefs(source, field.calculationFieldRefs ?? [], 'field-references-field', true);
+        applyFunctionRefs(source, field.calculationFunctionRefs ?? [], 'field-references-function');
+      } else if (typeof field.calculation === 'string' && field.calculation) {
+        scanCalculationText(
+          source,
+          field.calculation,
+          'field-references-field',
+          'field-references-function'
+        );
+      }
     }
     for (const fn of customFunctions) {
-      scanCalculation(fnRef(fn), fn.calculation);
+      const source = fnRef(fn);
+      if (fn.calculationFieldRefs || fn.calculationFunctionRefs) {
+        applyFieldRefs(source, fn.calculationFieldRefs ?? [], 'field-references-field', true);
+        applyFunctionRefs(source, fn.calculationFunctionRefs ?? [], 'field-references-function');
+      } else if (fn.calculation) {
+        scanCalculationText(
+          source,
+          fn.calculation,
+          'field-references-field',
+          'field-references-function'
+        );
+      }
+    }
+    // Script steps that carry a calculation (Set Variable, If/Else If, Exit
+    // Script, Halt Script) — same handling, but from the script itself.
+    for (const script of scripts) {
+      const source = scriptRef(script);
+      for (const step of script.steps) {
+        if (step.options?.fieldRefs || step.options?.functionRefs) {
+          applyFieldRefs(source, step.options.fieldRefs ?? [], 'script-references-field', true);
+          applyFunctionRefs(source, step.options.functionRefs ?? [], 'script-references-function');
+        } else if (typeof step.options?.calculation === 'string' && step.options.calculation) {
+          scanCalculationText(
+            source,
+            step.options.calculation,
+            'script-references-field',
+            'script-references-function'
+          );
+        }
+      }
     }
 
     const outEdges = new Map<string, DependencyEdge[]>();

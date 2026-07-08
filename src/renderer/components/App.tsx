@@ -28,6 +28,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import DownloadIcon from '@mui/icons-material/Download';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import TableChartIcon from '@mui/icons-material/TableChart';
+import CodeIcon from '@mui/icons-material/Code';
 
 // Import our components (will create these next)
 import ProjectDashboard from './ProjectDashboard';
@@ -36,6 +37,7 @@ import SearchPanel from './SearchPanel';
 import GraphVisualization from './GraphVisualization';
 import ExportPanel from './ExportPanel';
 import TablesView from './TablesView';
+import ScriptsView from './ScriptsView';
 
 // Import types from our models
 import { Project, Solution } from '../../models';
@@ -100,6 +102,9 @@ export default function App() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentSolution, setCurrentSolution] = useState<Solution | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ tableName: string; token: number } | null>(
+    null
+  );
   const [loading, setLoading] = useState(false);
   const [parseProgress, setParseProgress] = useState(0);
   const [parseMessage, setParseMessage] = useState('');
@@ -247,6 +252,37 @@ export default function App() {
     setCurrentTab(0); // Switch to dashboard tab
   };
 
+  // Navigue vers le fichier réel d'une occurrence de table externe (solution
+  // multi-fichiers). `fileName` est le nom du DDR XML (ex: "gip_data_fmp12.xml",
+  // résolu via ExternalDataSourcesCatalog — voir Table.externalFile).
+  const handleOpenExternalFile = (fileName: string, tableName: string) => {
+    if (!currentSolution) {
+      showNotification(
+        `Impossible de localiser "${fileName}" — aucune solution multi-fichiers chargée.`,
+        'warning'
+      );
+      return;
+    }
+    const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
+    const match = currentSolution.files.find(f => basename(f.link) === fileName);
+    if (!match) {
+      showNotification(`Fichier "${fileName}" introuvable dans la solution.`, 'warning');
+      return;
+    }
+    if (match.parseStatus !== 'ready' || !match.projectId) {
+      showNotification(`Fichier "${fileName}" pas encore analysé.`, 'warning');
+      return;
+    }
+    const targetProject = projects.find(p => p.id === match.projectId);
+    if (!targetProject) {
+      showNotification(`Projet pour "${fileName}" introuvable.`, 'warning');
+      return;
+    }
+    setCurrentProject(targetProject);
+    setFocusRequest({ tableName, token: Date.now() });
+    setCurrentTab(2); // Onglet Tables
+  };
+
   const handleProjectUpload = async (file: File) => {
     if (!window.electronAPI) {
       showNotification('Electron API not available', 'error');
@@ -333,22 +369,23 @@ export default function App() {
               {...a11yProps(2)}
               disabled={!currentProject}
             />
+            <Tab icon={<CodeIcon />} label="Scripts" {...a11yProps(3)} disabled={!currentProject} />
             <Tab
               icon={<SearchIcon />}
               label="Search"
-              {...a11yProps(3)}
+              {...a11yProps(4)}
               disabled={!currentProject}
             />
             <Tab
               icon={<AccountTreeIcon />}
               label="Visualize"
-              {...a11yProps(4)}
+              {...a11yProps(5)}
               disabled={!currentProject}
             />
             <Tab
               icon={<DownloadIcon />}
               label="Export"
-              {...a11yProps(5)}
+              {...a11yProps(6)}
               disabled={!currentProject}
             />
           </Tabs>
@@ -370,18 +407,26 @@ export default function App() {
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>
-          <TablesView projectId={currentProject?.id || null} />
+          <TablesView
+            projectId={currentProject?.id || null}
+            focusRequest={focusRequest}
+            onOpenExternalFile={handleOpenExternalFile}
+          />
         </TabPanel>
 
         <TabPanel value={currentTab} index={3}>
-          <SearchPanel projectId={currentProject?.id || null} onNavigate={setCurrentTab} />
+          <ScriptsView projectId={currentProject?.id || null} />
         </TabPanel>
 
         <TabPanel value={currentTab} index={4}>
-          <GraphVisualization projectId={currentProject?.id || null} />
+          <SearchPanel projectId={currentProject?.id || null} onNavigate={setCurrentTab} />
         </TabPanel>
 
         <TabPanel value={currentTab} index={5}>
+          <GraphVisualization projectId={currentProject?.id || null} />
+        </TabPanel>
+
+        <TabPanel value={currentTab} index={6}>
           <ExportPanel projectId={currentProject?.id || null} />
         </TabPanel>
       </Container>

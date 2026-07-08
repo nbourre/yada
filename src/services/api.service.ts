@@ -966,6 +966,25 @@ export class ApiService {
       }
     });
 
+    // Get Scripts for a Project
+    this.app.get('/api/projects/:id/scripts', async (req, res) => {
+      try {
+        const projectId = req.params.id;
+        const scripts = await databaseService.getScriptsForProject(projectId);
+
+        const response: ApiResponse<typeof scripts> = {
+          success: true,
+          data: scripts,
+          timestamp: new Date(),
+          requestId: this.generateRequestId(),
+        };
+
+        res.json(response);
+      } catch (error) {
+        this.sendError(res, `Failed to get scripts: ${error}`, 500);
+      }
+    });
+
     // Get Project Graph Data
     this.app.get('/api/projects/:id/graph', async (req, res) => {
       try {

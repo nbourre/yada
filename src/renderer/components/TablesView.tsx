@@ -38,6 +38,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { Table as TableModel, Field, DependencyEntityRef } from '../../models';
 import DependencyPanel from './DependencyPanel';
 import { useResizableWidth } from '../utils/useResizableWidth';
@@ -46,8 +47,17 @@ import { useResizableWidth } from '../utils/useResizableWidth';
 // Types
 // ---------------------------------------------------------------------------
 
+interface FocusRequest {
+  tableName: string;
+  token: number;
+}
+
 interface TablesViewProps {
   projectId: string | null;
+  /** Requête de navigation venant d'un autre fichier de la solution (voir onOpenExternalFile). */
+  focusRequest?: FocusRequest | null;
+  /** Appelé quand l'utilisateur clique sur le lien "ouvrir" d'une occurrence externe. */
+  onOpenExternalFile?: (fileName: string, tableName: string) => void;
 }
 
 interface TableRow {
@@ -83,6 +93,7 @@ interface DetailDrawerProps {
   table: TableModel | null;
   onClose: () => void;
   onFieldClick: (field: Field) => void;
+  onOpenExternalFile?: (fileName: string, tableName: string) => void;
 }
 
 const FIELD_TYPE_COLOR: Record<string, string> = {
@@ -168,7 +179,7 @@ function fieldSortValue(field: Field, column: FieldSortColumn): string {
   }
 }
 
-function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
+function DetailDrawer({ table, onClose, onFieldClick, onOpenExternalFile }: DetailDrawerProps) {
   const [fieldFilter, setFieldFilter] = useState('');
   const [sortColumn, setSortColumn] = useState<FieldSortColumn>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -322,6 +333,31 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
 
       {/* Contenu scrollable */}
       <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 2 }}>
+        {/* Occurrence pointant vers un fichier externe (solution multi-fichiers) */}
+        {isOccurrence && table.externalFile && (
+          <Alert
+            severity="info"
+            sx={{ mb: 2 }}
+            action={
+              onOpenExternalFile && (
+                <IconButton
+                  size="small"
+                  color="inherit"
+                  onClick={() => onOpenExternalFile(table.externalFile!, baseTableName)}
+                  title={`Ouvrir ${table.externalFile}`}
+                >
+                  <OpenInNewIcon fontSize="small" />
+                </IconButton>
+              )
+            }
+          >
+            Cette occurrence pointe vers la table «{baseTableName || '?'}» du fichier externe «
+            {table.externalFile}».
+            {(table.fields?.length ?? 0) === 0 &&
+              ' Les champs ne sont pas visibles ici — ouvrez ce fichier pour les consulter.'}
+          </Alert>
+        )}
+
         {/* Champs */}
         <Box display="flex" alignItems="center" gap={1} mb={1}>
           <ViewColumnIcon fontSize="small" color="action" />
@@ -375,7 +411,11 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
               {filteredFields.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>
-                    {(table.fields?.length ?? 0) === 0 ? 'Aucun champ' : 'Aucun résultat'}
+                    {(table.fields?.length ?? 0) === 0
+                      ? table.externalFile
+                        ? 'Champs définis dans un autre fichier (voir ci-dessus)'
+                        : 'Aucun champ'
+                      : 'Aucun résultat'}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -537,7 +577,11 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
 // Composant principal
 // ---------------------------------------------------------------------------
 
-export default function TablesView({ projectId }: TablesViewProps) {
+export default function TablesView({
+  projectId,
+  focusRequest,
+  onOpenExternalFile,
+}: TablesViewProps) {
   const [tables, setTables] = useState<TableModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -565,6 +609,14 @@ export default function TablesView({ projectId }: TablesViewProps) {
   useEffect(() => {
     loadTables();
   }, [loadTables]);
+
+  // Après une navigation vers un fichier externe (voir onOpenExternalFile),
+  // sélectionne automatiquement la table de base visée une fois chargée.
+  useEffect(() => {
+    if (!focusRequest) return;
+    const t = tables.find(t => t.name === focusRequest.tableName);
+    if (t) setSelectedTable(t);
+  }, [focusRequest, tables]);
 
   // Construire les lignes DataGrid
   const rows: TableRow[] = tables
@@ -751,6 +803,7 @@ export default function TablesView({ projectId }: TablesViewProps) {
             tableName: selectedTable?.name,
           })
         }
+        onOpenExternalFile={onOpenExternalFile}
       />
 
       {/* Panneau de dépendances */}

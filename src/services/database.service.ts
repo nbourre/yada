@@ -244,7 +244,12 @@ export class DatabaseService {
       relationships: [],
     };
 
-    this.mockTables.set(fullTable.id, fullTable);
+    // Clé composite (projectId:id) — les id assignés par FileMaker dans le DDR
+    // ne sont uniques que dans un seul fichier ; deux projets distincts (ex: les
+    // fichiers UI et données d'une même solution multi-fichiers) peuvent très
+    // bien réutiliser le même id, ce qui écraserait silencieusement l'entrée de
+    // l'autre projet avec une simple clé `.id`.
+    this.mockTables.set(`${fullTable.projectId}:${fullTable.id}`, fullTable);
     return fullTable;
   }
 
@@ -275,7 +280,7 @@ export class DatabaseService {
       storage: field.storage || {},
     };
 
-    this.mockFields.set(fullField.id, fullField);
+    this.mockFields.set(`${fullField.projectId}:${fullField.id}`, fullField);
     return fullField;
   }
 
@@ -291,7 +296,7 @@ export class DatabaseService {
     const now = new Date();
     const fullLayout: Layout = { ...layout, createdAt: now, updatedAt: now };
 
-    this.mockLayouts.set(fullLayout.id, fullLayout);
+    this.mockLayouts.set(`${fullLayout.projectId}:${fullLayout.id}`, fullLayout);
     return fullLayout;
   }
 
@@ -307,7 +312,7 @@ export class DatabaseService {
     const now = new Date();
     const fullScript: Script = { ...script, createdAt: now, updatedAt: now };
 
-    this.mockScripts.set(fullScript.id, fullScript);
+    this.mockScripts.set(`${fullScript.projectId}:${fullScript.id}`, fullScript);
     return fullScript;
   }
 
@@ -325,7 +330,7 @@ export class DatabaseService {
     const now = new Date();
     const fullFn: CustomFunction = { ...fn, createdAt: now, updatedAt: now };
 
-    this.mockCustomFunctions.set(fullFn.id, fullFn);
+    this.mockCustomFunctions.set(`${fullFn.projectId}:${fullFn.id}`, fullFn);
     return fullFn;
   }
 

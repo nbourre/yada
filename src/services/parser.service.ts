@@ -17,6 +17,7 @@ import {
   CustomFunction,
   FieldType,
   FieldKind,
+  CalcFieldReference,
   LayoutType,
   RelationshipType,
   ProjectStatistics,
@@ -32,12 +33,27 @@ export interface ParseResult {
 }
 
 // Minimal DDR XML type definitions used for parsing (subset of full schema)
+
+// FileMaker's own disambiguated parse of a calculation formula: a flat list
+// of "chunks" where FieldRef/FunctionRef chunks are unambiguous (unlike a
+// text-regex guess over the raw formula, which can misfire on string
+// literals such as "Please choose A::B").
+interface DDRChunk {
+  '@_type'?: string; // 'FieldRef' | 'FunctionRef' | 'NoRef' | ...
+  Field?: { '@_table'?: string; '@_name'?: string; '@_id'?: string };
+  '#text'?: string;
+}
+interface DDRDisplayCalculation {
+  Chunk?: DDRChunk | DDRChunk[];
+}
+
 interface DDRField {
   '@_name'?: string;
   '@_dataType'?: string;
   '@_type'?: string;
   '@_fieldType'?: string;
   Calculation?: { '#text'?: string } | string;
+  DisplayCalculation?: DDRDisplayCalculation;
   Comment?: { '#text'?: string } | string;
 }
 
@@ -84,6 +100,11 @@ interface DDRPortalObj {
   FieldList?: DDRPortalFieldList;
 }
 
+interface DDRButtonStep {
+  '@_name'?: string;
+  Script?: { '@_name'?: string; '@_id'?: string };
+}
+
 // Layout objects nest arbitrarily deep (fields inside portals inside tab
 // panels/groups), so this type only pins down the parts we read directly —
 // everything else is walked generically as unknown nested container data.
@@ -92,13 +113,26 @@ interface DDRLayoutObject {
   Bounds?: DDRBounds;
   FieldObj?: DDRFieldObj;
   PortalObj?: DDRPortalObj;
+  // A button's own "Perform Script" step (ButtonObj > Step), reached by the
+  // same generic recursive walk used for fields/portals.
+  Step?: DDRButtonStep | DDRButtonStep[];
   [key: string]: unknown;
+}
+
+interface DDRScriptTrigger {
+  '@_event'?: string;
+  Script?: { '@_name'?: string; '@_id'?: string };
+}
+
+interface DDRScriptTriggers {
+  Trigger?: DDRScriptTrigger | DDRScriptTrigger[];
 }
 
 interface DDRLayout {
   '@_name'?: string;
   '@_type'?: string;
   Object?: DDRLayoutObject | DDRLayoutObject[];
+  ScriptTriggers?: DDRScriptTriggers;
 }
 interface DDRLayoutGroup {
   Layout?: DDRLayout | DDRLayout[];
@@ -116,7 +150,14 @@ interface DDRScriptStep {
   '@_id'?: string;
   '@_name'?: string;
   '@_enable'?: string;
+  // FileMaker's own pre-rendered human-readable text for this step (e.g.
+  // "Set Variable [ $x; Value:1 ]") — covers every step type uniformly,
+  // without needing a hand-written renderer per FileMaker step kind.
+  StepText?: { '#text'?: string } | string;
+  Text?: { '#text'?: string } | string;
   Calculation?: { '#text'?: string } | string;
+  // Sibling of Calculation for If/Else If/Exit Script/Halt Script steps.
+  DisplayCalculation?: DDRDisplayCalculation;
   // "Perform Script" target
   Script?: { '@_name'?: string; '@_id'?: string };
   FileReference?: { '@_name'?: string };
@@ -124,17 +165,33 @@ interface DDRScriptStep {
   Layout?: { '@_name'?: string };
   // "Set Field"
   Field?: { '@_name'?: string; '@_table'?: string } | { '@_name'?: string; '@_table'?: string }[];
+  // "Set Variable"
+  Value?: {
+    Calculation?: { '#text'?: string } | string;
+    DisplayCalculation?: DDRDisplayCalculation;
+  };
+  Name?: { '#text'?: string } | string;
 }
 
 interface DDRScript {
   '@_name'?: string;
   '@_id'?: string;
   '@_comment'?: string;
+  '@_runFullAccess'?: string;
+  '@_includeInMenu'?: string;
   Comment?: { '#text'?: string } | string;
   StepList?: { Step?: DDRScriptStep | DDRScriptStep[] };
 }
+
+interface DDRScriptGroup {
+  Script?: DDRScript | DDRScript[];
+  Group?: DDRScriptGroup | DDRScriptGroup[];
+}
+
 interface DDRScriptCatalog {
-  Script: DDRScript | DDRScript[];
+  Script?: DDRScript | DDRScript[];
+  // Scripts organized into folders are nested under Group, same as layouts.
+  Group?: DDRScriptGroup | DDRScriptGroup[];
 }
 
 interface DDRJoinPredicate {
@@ -150,14 +207,30 @@ interface DDRRelationship {
   JoinPredicateList?: { JoinPredicate: DDRJoinPredicate | DDRJoinPredicate[] };
 }
 
+interface DDRFileReference {
+  '@_id'?: string;
+  '@_name'?: string;
+  '@_link'?: string; // only present in ExternalDataSourcesCatalog entries
+}
+
+// A TO carries <FileReference id="X"/> only when its base table lives in
+// another file of the solution — a purely local TO has no FileReference at
+// all (confirmed against real multi-file fixtures).
 interface DDRTableOccurrence {
   '@_id'?: string;
   '@_name'?: string;
   '@_baseTable'?: string;
+  FileReference?: DDRFileReference;
 }
 interface DDRRelationshipGraph {
   TableList?: { Table: DDRTableOccurrence | DDRTableOccurrence[] };
   RelationshipList?: { Relationship: DDRRelationship | DDRRelationship[] };
+}
+
+// Maps a FileReference id (as used on a TO) to the actual external DDR
+// filename, e.g. id="1" -> link="gip_data_fmp12.xml".
+interface DDRExternalDataSourcesCatalog {
+  FileReference?: DDRFileReference | DDRFileReference[];
 }
 
 // Custom Functions
@@ -166,6 +239,7 @@ interface DDRCustomFunction {
   '@_name'?: string;
   '@_parameters'?: string;
   Calculation?: { '#text'?: string } | string;
+  DisplayCalculation?: DDRDisplayCalculation;
   Comment?: { '#text'?: string } | string;
 }
 interface DDRCustomFunctionCatalog {
@@ -207,6 +281,7 @@ interface DDRFileElement {
   CustomFunctionCatalog?: DDRCustomFunctionCatalog;
   ValueListCatalog?: DDRValueListCatalog;
   PrivilegeCatalog?: DDRPrivilegeCatalog;
+  ExternalDataSourcesCatalog?: DDRExternalDataSourcesCatalog;
 }
 
 export class XMLParserService {
@@ -226,6 +301,10 @@ export class XMLParserService {
 
   // Collections for parsed entities
   private tables: Table[] = [];
+  // FileReference id -> external DDR filename (e.g. "1" -> "gip_data_fmp12.xml"),
+  // from ExternalDataSourcesCatalog. Used to tag table occurrences whose base
+  // table lives in another file of a multi-file solution.
+  private externalDataSources: Map<string, string> = new Map();
   private fields: Field[] = [];
   private layouts: Layout[] = [];
   private scripts: Script[] = [];
@@ -418,6 +497,13 @@ export class XMLParserService {
       this.processBaseTableCatalog(fileElement.BaseTableCatalog);
     }
 
+    // Process ExternalDataSourcesCatalog before RelationshipGraph: it maps
+    // FileReference ids to actual external filenames, which RelationshipGraph
+    // needs to resolve which file an external table occurrence points to.
+    if (fileElement.ExternalDataSourcesCatalog) {
+      this.processExternalDataSourcesCatalog(fileElement.ExternalDataSourcesCatalog);
+    }
+
     // Process RelationshipGraph before LayoutCatalog: it resolves table
     // occurrence -> base table names, which layout field extraction needs
     // (layouts reference fields through occurrence names, not base tables).
@@ -491,6 +577,7 @@ export class XMLParserService {
             fieldKind: this.mapFieldKind(fieldData['@_fieldType']),
             options: {},
             calculation: this.extractDDRText(fieldData.Calculation),
+            ...this.namedCalcRefs(fieldData.DisplayCalculation),
             comment: this.extractDDRText(fieldData.Comment),
           };
 
@@ -507,20 +594,29 @@ export class XMLParserService {
     console.log(`Parser: Processed ${tableArray.length} tables with ${this.fields.length} fields`);
   }
 
-  private collectLayouts(catalog: DDRLayoutCatalog | DDRLayoutGroup): DDRLayout[] {
-    const result: DDRLayout[] = [];
-    if (catalog.Layout) {
-      result.push(...(Array.isArray(catalog.Layout) ? catalog.Layout : [catalog.Layout]));
+  /**
+   * LayoutCatalog and ScriptCatalog both organize their items into optional
+   * nested `Group` folders instead of listing them flatly — this walks
+   * either shape uniformly. `itemKey` is `'Layout'` or `'Script'`.
+   */
+  private collectGrouped<T>(node: object, itemKey: string): T[] {
+    const result: T[] = [];
+    const rec = node as Record<string, unknown>;
+    const items = rec[itemKey] as T | T[] | undefined;
+    if (items) {
+      result.push(...(Array.isArray(items) ? items : [items]));
     }
-    if (catalog.Group) {
-      const groups = Array.isArray(catalog.Group) ? catalog.Group : [catalog.Group];
-      for (const g of groups) result.push(...this.collectLayouts(g));
+    if (rec.Group) {
+      const groups = Array.isArray(rec.Group) ? rec.Group : [rec.Group];
+      for (const g of groups) {
+        result.push(...this.collectGrouped<T>(g as object, itemKey));
+      }
     }
     return result;
   }
 
   private processLayoutCatalog(catalog: DDRLayoutCatalog): void {
-    const layoutArray = this.collectLayouts(catalog);
+    const layoutArray = this.collectGrouped<DDRLayout>(catalog, 'Layout');
     if (layoutArray.length === 0) return;
 
     // "Table::field" -> field id, built once and reused for every layout in
@@ -545,14 +641,15 @@ export class XMLParserService {
     }
 
     layoutArray.forEach((layoutData: DDRLayout) => {
+      const { fields, scriptNames } = this.extractLayoutFieldsAndScripts(layoutData, fieldIndex);
       const layout: Layout = {
         id: this.generateId(),
         projectId: this.currentProject.id!,
         name: layoutData['@_name'] || 'Unnamed Layout',
         type: 'form' as LayoutType,
-        fields: this.extractLayoutFields(layoutData, fieldIndex),
+        fields,
         parts: [],
-        scripts: [],
+        scripts: scriptNames,
       };
 
       this.layouts.push(layout);
@@ -563,30 +660,45 @@ export class XMLParserService {
   }
 
   /**
-   * Layout objects nest arbitrarily deep — a field can sit directly on the
-   * layout, or inside a portal, itself inside a tab panel or group. Fields
-   * placed on layouts aren't otherwise exposed by the DDR anywhere else, so
-   * this walk recurses into every nested object rather than assuming a flat
-   * top-level `Object` list.
+   * Layout objects nest arbitrarily deep — a field (or a button's own
+   * "Perform Script" step) can sit directly on the layout, or inside a
+   * portal, itself inside a tab panel or group. Neither is otherwise
+   * exposed by the DDR anywhere else, so a single walk recurses into every
+   * nested object and collects both in one pass rather than assuming a
+   * flat top-level `Object` list (or re-walking the tree twice).
    */
-  private extractLayoutFields(
+  private extractLayoutFieldsAndScripts(
     layoutData: DDRLayout,
     fieldIndex: Map<string, string>
-  ): LayoutField[] {
-    const result: LayoutField[] = [];
-    this.walkLayoutObjects(layoutData.Object, result, fieldIndex);
-    return result;
+  ): { fields: LayoutField[]; scriptNames: string[] } {
+    const fields: LayoutField[] = [];
+    const scriptNames = new Set<string>();
+    this.walkLayoutObjects(layoutData.Object, fields, fieldIndex, scriptNames);
+
+    // Script triggers are declared once, directly on the layout (not nested
+    // inside Object/ButtonObj like a button's action).
+    const triggers = layoutData.ScriptTriggers?.Trigger;
+    if (triggers) {
+      const arr = Array.isArray(triggers) ? triggers : [triggers];
+      for (const t of arr) {
+        const name = t.Script?.['@_name'];
+        if (name) scriptNames.add(name);
+      }
+    }
+
+    return { fields, scriptNames: Array.from(scriptNames) };
   }
 
   private walkLayoutObjects(
     node: unknown,
     sink: LayoutField[],
-    fieldIndex: Map<string, string>
+    fieldIndex: Map<string, string>,
+    scriptNames: Set<string>
   ): void {
     if (node === null || typeof node !== 'object') return;
 
     if (Array.isArray(node)) {
-      for (const item of node) this.walkLayoutObjects(item, sink, fieldIndex);
+      for (const item of node) this.walkLayoutObjects(item, sink, fieldIndex, scriptNames);
       return;
     }
 
@@ -599,12 +711,26 @@ export class XMLParserService {
       this.extractPortalFields(obj, sink, fieldIndex);
     }
 
+    // A button's own step (or any object carrying one) — collect its
+    // "Perform Script" target regardless of the enclosing object's type.
+    if (obj.Step) {
+      const steps = Array.isArray(obj.Step) ? obj.Step : [obj.Step];
+      for (const step of steps) {
+        if (
+          (step['@_name'] === 'Perform Script' || step['@_name'] === 'Perform Script on Server') &&
+          step.Script?.['@_name']
+        ) {
+          scriptNames.add(step.Script['@_name']);
+        }
+      }
+    }
+
     // Recurse into every nested property to reach objects buried inside
     // portals, tab panels, groups, etc. (own Field/Portal objects were
     // already handled above; this also finds objects nested further down).
     for (const key of Object.keys(obj)) {
       if (key.startsWith('@_')) continue;
-      this.walkLayoutObjects(obj[key], sink, fieldIndex);
+      this.walkLayoutObjects(obj[key], sink, fieldIndex, scriptNames);
     }
   }
 
@@ -673,10 +799,8 @@ export class XMLParserService {
   }
 
   private processScriptCatalog(catalog: DDRScriptCatalog): void {
-    const scripts = catalog.Script;
-    if (!scripts) return;
-
-    const scriptArray = Array.isArray(scripts) ? scripts : [scripts];
+    const scriptArray = this.collectGrouped<DDRScript>(catalog, 'Script');
+    if (scriptArray.length === 0) return;
 
     scriptArray.forEach((scriptData: DDRScript) => {
       const steps = this.parseScriptSteps(scriptData);
@@ -686,6 +810,8 @@ export class XMLParserService {
         projectId: this.currentProject.id!,
         name: scriptData['@_name'] || 'Unnamed Script',
         steps,
+        runWithFullAccess: scriptData['@_runFullAccess'] === 'True',
+        includeInMenu: scriptData['@_includeInMenu'] === 'True',
         comment: scriptData['@_comment'] || this.extractDDRText(scriptData.Comment),
       };
 
@@ -710,6 +836,9 @@ export class XMLParserService {
       const step: ScriptStep = {
         step: stepName,
         enabled,
+        // FileMaker's own rendering of the step, e.g. "Set Variable [ $x; Value:1 ]" —
+        // falls back to <Text> (used by comment steps) when <StepText> is empty/absent.
+        text: this.extractDDRText(s.StepText) || this.extractDDRText(s.Text) || stepName,
         options: {},
       };
 
@@ -735,12 +864,25 @@ export class XMLParserService {
           };
           break;
         }
+        case 'Set Variable': {
+          const { fieldRefs, functionRefs } = this.extractCalcRefs(s.Value?.DisplayCalculation);
+          step.options = {
+            variableName: this.extractDDRText(s.Name) || '',
+            calculation: this.extractDDRText(s.Value?.Calculation) || '',
+            fieldRefs,
+            functionRefs,
+          };
+          break;
+        }
         case 'If':
         case 'Else If':
         case 'Exit Script':
         case 'Halt Script': {
+          const { fieldRefs, functionRefs } = this.extractCalcRefs(s.DisplayCalculation);
           step.options = {
             calculation: this.extractDDRText(s.Calculation) || '',
+            fieldRefs,
+            functionRefs,
           };
           break;
         }
@@ -750,6 +892,18 @@ export class XMLParserService {
     }
 
     return steps;
+  }
+
+  private processExternalDataSourcesCatalog(catalog: DDRExternalDataSourcesCatalog): void {
+    const refs = catalog.FileReference;
+    if (!refs) return;
+
+    const arr = Array.isArray(refs) ? refs : [refs];
+    for (const ref of arr) {
+      const id = ref['@_id'];
+      const link = ref['@_link'];
+      if (id && link) this.externalDataSources.set(id, link);
+    }
   }
 
   private processRelationshipGraph(graph: DDRRelationshipGraph): void {
@@ -771,6 +925,8 @@ export class XMLParserService {
         const existingTable = this.tables.find(t => t.name === name);
         if (!existingTable) {
           const baseTableEntity = this.tables.find(t => !t.isOccurrence && t.name === baseTable);
+          const fileRefId = tableData.FileReference?.['@_id'];
+          const externalFile = fileRefId ? this.externalDataSources.get(fileRefId) : undefined;
           const table: Table = {
             id: tableData['@_id'] || this.generateId(),
             projectId: this.currentProject.id!,
@@ -781,6 +937,7 @@ export class XMLParserService {
             baseTableId: baseTableEntity?.id,
             isOccurrence: true,
             recordCount: 0,
+            externalFile,
             fields: [],
             relationships: [],
           };
@@ -1022,6 +1179,7 @@ export class XMLParserService {
           .filter(Boolean)
           .map(p => ({ name: p })),
         calculation: this.extractDDRText(cf.Calculation) || '',
+        ...this.namedCalcRefs(cf.DisplayCalculation),
         comment: this.extractDDRText(cf.Comment),
       };
       this.customFunctions.push(fn);
@@ -1164,6 +1322,7 @@ export class XMLParserService {
 
     // Clear collections
     this.tables = [];
+    this.externalDataSources = new Map();
     this.fields = [];
     this.layouts = [];
     this.scripts = [];
@@ -1205,6 +1364,45 @@ export class XMLParserService {
       return text === undefined || text === null ? undefined : String(text);
     }
     return String(value);
+  }
+
+  /**
+   * Reads FileMaker's own disambiguated parse of a calculation formula
+   * (<DisplayCalculation><Chunk type="FieldRef|FunctionRef">) instead of
+   * guessing from the raw formula text — every FieldRef chunk is definitely
+   * a real field reference, so this can't misfire on a string literal like
+   * "Please choose A::B" the way a text-regex heuristic could.
+   */
+  private extractCalcRefs(displayCalc: DDRDisplayCalculation | undefined): {
+    fieldRefs: CalcFieldReference[];
+    functionRefs: string[];
+  } {
+    const fieldRefs: CalcFieldReference[] = [];
+    const functionRefs: string[] = [];
+    const chunks = displayCalc?.Chunk;
+    if (!chunks) return { fieldRefs, functionRefs };
+
+    const arr = Array.isArray(chunks) ? chunks : [chunks];
+    for (const c of arr) {
+      if (c['@_type'] === 'FieldRef') {
+        const table = c.Field?.['@_table'];
+        const name = c.Field?.['@_name'];
+        if (table && name) fieldRefs.push({ table, name });
+      } else if (c['@_type'] === 'FunctionRef') {
+        const name = this.extractDDRText(c);
+        if (name) functionRefs.push(name);
+      }
+    }
+
+    return { fieldRefs, functionRefs };
+  }
+
+  private namedCalcRefs(displayCalc: DDRDisplayCalculation | undefined): {
+    calculationFieldRefs: CalcFieldReference[];
+    calculationFunctionRefs: string[];
+  } {
+    const { fieldRefs, functionRefs } = this.extractCalcRefs(displayCalc);
+    return { calculationFieldRefs: fieldRefs, calculationFunctionRefs: functionRefs };
   }
 
   private async saveParsedDataToDatabase(): Promise<void> {

@@ -182,6 +182,206 @@ describe('dependencyService.resolveDependencies', () => {
     });
   });
 
+  it('finds a script dependent via a layout that triggers it (ScriptTriggers or button)', async () => {
+    const pid = id('proj');
+    const script = makeScript(pid, { name: 'Init' });
+    await databaseService.createScript(script);
+    const layout = makeLayout(pid, { name: 'Home', scripts: ['Init'] });
+    await databaseService.createLayout(layout);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'script',
+      script.id,
+      'dependents'
+    );
+
+    expect(graph.dependents).toHaveLength(1);
+    expect(graph.dependents[0]).toMatchObject({
+      entityType: 'layout',
+      entityId: layout.id,
+      edgeType: 'layout-triggers-script',
+      level: 1,
+    });
+  });
+
+  it('detects a script-references-field dependency via a Set Variable calculation', async () => {
+    const pid = id('proj');
+    const table = makeTable(pid, { name: 'Invoice' });
+    const field = makeField(pid, 'Invoice', { name: 'Total' });
+    await databaseService.createTable(table);
+    await databaseService.createField(field);
+
+    const script = makeScript(pid, {
+      name: 'Compute',
+      steps: [
+        {
+          step: 'Set Variable',
+          enabled: true,
+          options: { variableName: '$x', calculation: 'Invoice::Total * 2' },
+        },
+      ],
+    });
+    await databaseService.createScript(script);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'script',
+      script.id,
+      'dependencies'
+    );
+
+    expect(graph.dependencies).toHaveLength(1);
+    expect(graph.dependencies[0]).toMatchObject({
+      entityType: 'field',
+      entityId: field.id,
+      edgeType: 'script-references-field',
+    });
+  });
+
+  it('surfaces a field reference as "unresolved" rather than dropping it when it does not resolve in this project (e.g. cross-file solution)', async () => {
+    // Regression test: a field referenced inside an "If" step's calculation
+    // via FileMaker's own structured FieldRef chunk (options.fieldRefs) but
+    // absent from this project's own fields — most commonly because the
+    // field lives in a different file of a multi-file solution. This must
+    // still show up as a dependency, just flagged as unresolved, instead of
+    // silently vanishing the way the old text-regex-only heuristic did.
+    const pid = id('proj');
+    const script = makeScript(pid, {
+      name: 'employe.delete',
+      steps: [
+        {
+          step: 'If',
+          enabled: true,
+          options: {
+            calculation: 'not EMP__EMPLOYES::id = $id',
+            fieldRefs: [{ table: 'EMP__EMPLOYES', name: 'id' }],
+            functionRefs: ['not'],
+          },
+        },
+      ],
+    });
+    await databaseService.createScript(script);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'script',
+      script.id,
+      'dependencies'
+    );
+
+    expect(graph.dependencies).toHaveLength(1);
+    expect(graph.dependencies[0]).toMatchObject({
+      entityType: 'field',
+      entityName: 'id',
+      tableName: 'EMP__EMPLOYES',
+      edgeType: 'script-references-field',
+      unresolved: true,
+    });
+  });
+
+  it('names the actual external file in the unresolved detail when the occurrence has one', async () => {
+    // The occurrence's own <FileReference>, resolved via ExternalDataSourcesCatalog
+    // at parse time into Table.externalFile, lets the "unresolved" message name
+    // the actual file instead of a generic "not found in this file".
+    const pid = id('proj');
+    const occurrence = makeTable(pid, {
+      name: 'EMP__EMPLOYES',
+      isOccurrence: true,
+      baseTable: 'employes',
+      externalFile: 'gip_data_fmp12.xml',
+    });
+    await databaseService.createTable(occurrence);
+
+    const script = makeScript(pid, {
+      name: 'employe.delete',
+      steps: [
+        {
+          step: 'If',
+          enabled: true,
+          options: {
+            calculation: 'not EMP__EMPLOYES::id = $id',
+            fieldRefs: [{ table: 'EMP__EMPLOYES', name: 'id' }],
+            functionRefs: [],
+          },
+        },
+      ],
+    });
+    await databaseService.createScript(script);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'script',
+      script.id,
+      'dependencies'
+    );
+
+    expect(graph.dependencies).toHaveLength(1);
+    expect(graph.dependencies[0].detail).toContain('gip_data_fmp12.xml');
+  });
+
+  it('does not surface an unresolved field reference from the regex fallback (no structured fieldRefs)', async () => {
+    // The regex-only fallback path (used when a script has no structured
+    // fieldRefs at all, e.g. very old cached data) keeps the original,
+    // stricter behavior: an unresolved match is dropped, not surfaced —
+    // unlike the FileMaker-disambiguated structured path, plain regex
+    // matches can misfire on string literals and aren't confident enough
+    // to show as "definitely a reference, just not found".
+    const pid = id('proj');
+    const script = makeScript(pid, {
+      name: 'Legacy',
+      steps: [
+        {
+          step: 'If',
+          enabled: true,
+          options: { calculation: 'not SomeOtherFile::id = $id' },
+        },
+      ],
+    });
+    await databaseService.createScript(script);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'script',
+      script.id,
+      'dependencies'
+    );
+
+    expect(graph.dependencies).toHaveLength(0);
+  });
+
+  it('detects a script-references-function dependency via an If step calculation', async () => {
+    const pid = id('proj');
+    const fn = makeCustomFunction(pid, { name: 'IsWeekend', calculation: 'DayOfWeek(x) > 5' });
+    await databaseService.createCustomFunction(fn);
+
+    const script = makeScript(pid, {
+      name: 'Check',
+      steps: [
+        {
+          step: 'If',
+          enabled: true,
+          options: { calculation: 'IsWeekend( Get(CurrentDate) )' },
+        },
+      ],
+    });
+    await databaseService.createScript(script);
+
+    const graph = await dependencyService.resolveDependencies(
+      pid,
+      'script',
+      script.id,
+      'dependencies'
+    );
+
+    expect(graph.dependencies).toHaveLength(1);
+    expect(graph.dependencies[0]).toMatchObject({
+      entityType: 'custom_function',
+      entityId: fn.id,
+      edgeType: 'script-references-function',
+    });
+  });
+
   it('resolves a transitive script-calls-script chain in BFS level order', async () => {
     const pid = id('proj');
     const s1 = makeScript(pid, { name: 'S1' });

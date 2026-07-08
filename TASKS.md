@@ -1,7 +1,7 @@
 # YADA — Suivi des tâches
 
 > Fichier de suivi actif. Mis à jour au fur et à mesure du développement.  
-> Dernière mise à jour : 2026-07-05
+> Dernière mise à jour : 2026-07-08
 
 ---
 
@@ -199,6 +199,69 @@
   - Confirmé sur `tests/fixtures/saveAsXML_Gestionnaire iPlus.xml` et `saveAsXML_gip_data.xml`
   - Rattaché à la Phase 7 (déjà prévue, pas traité ici — hors scope de T080-T085)
 
+- [x] BUG-010 Dépendances de niveau 1 manquantes pour les champs référencés dans un bloc "If"/calcul de script
+  - Signalé avec un exemple concret : un step "If" référençant `EMP__EMPLOYES::id` (script `employe.delete`,
+    `gip/Gestionnaire iPlus_fmp12.xml`) n'apparaissait pas dans les dépendances
+  - Cause réelle : le champ est défini dans un **autre fichier** de la solution multi-fichiers
+    (`gip_data_fmp12.xml`) — invisible pour le graphe de dépendances, qui est scopé par projet/fichier
+  - Fix en deux parties :
+    1. Utilisation des chunks `<DisplayCalculation><Chunk type="FieldRef"|"FunctionRef">` du DDR —
+       le propre parseur de calcul de FileMaker, fiable par construction (contrairement à une regex sur le
+       texte brut qui peut se tromper sur un littéral de chaîne contenant "::") — extraits dans le parser
+       (`Field`/`CustomFunction`/`ScriptStep.options.fieldRefs`/`functionRefs`) et utilisés en priorité par
+       `dependency.service.ts`, avec repli sur l'ancienne heuristique regex si absents (ex: données de test)
+    2. Une référence de champ non résolue dans le projet courant est maintenant **affichée quand même**
+       (`DependencyNode.unresolved: true`), au lieu d'être silencieusement ignorée — grisée, icône "?",
+       sans bouton "Naviguer vers". Les fonctions non résolues restent ignorées (bruit des fonctions
+       natives FileMaker impossible à distinguer des fonctions personnalisées à ce niveau)
+  - Vérifié sur le vrai fichier : `EMP__EMPLOYES::id` apparaît maintenant en Niveau 1, marqué non résolu
+  - Amélioration suite à une suggestion : le message affiché nomme maintenant le **fichier externe réel**
+    (ex: "Probablement défini dans \"gip_data_fmp12.xml\"") plutôt qu'un message générique — résolu via
+    le `<FileReference id="X">` propre à chaque occurrence de table (`RelationshipGraph > TableList > Table`)
+    croisé avec `ExternalDataSourcesCatalog > FileReference[@id][@link]` ; nouveau champ `Table.externalFile`
+  - Non traité (limite assumée) : résolution complète cross-fichiers dans le **graphe de dépendances**
+    (aller chercher le champ réel dans le projet de l'autre fichier pour continuer la cascade) —
+    nécessiterait que le backend connaisse le regroupement Solution → projets, qui n'existe pas
+    aujourd'hui au niveau de `dependency.service.ts`
+  - Suite (2026-07-08) — demande : « pour les occurrences de table externes, peux-tu faire un lien vers
+    celles-ci? Autrement, on ne voit pas les champs. » Ajout d'un lien de navigation dans `TablesView` :
+    - Le drawer de détail d'une occurrence externe (`table.externalFile` défini) affiche maintenant un
+      bandeau d'info nommant la table et le fichier externe, avec une icône « ouvrir »
+    - Côté `App.tsx` (qui a accès à `currentSolution` + la liste de tous les `Project` chargés), un clic
+      résout le nom de fichier DDR contre `Solution.files[].link` (comparaison par nom de fichier, le
+      `link` étant un chemin absolu résolu par `summary-parser.service.ts`), retrouve le `Project` déjà
+      parsé correspondant, bascule dessus (`setCurrentProject`) et sélectionne automatiquement la table
+      de base visée dans le nouvel onglet Tables (`focusRequest` avec un token pour forcer le re-déclenchement)
+    - Si aucune solution multi-fichiers n'est chargée, ou si le fichier visé n'a pas encore été analysé,
+      une notification explique pourquoi plutôt que de rester silencieux
+    - Ceci referme la limite ci-dessus **côté navigation UI** ; le graphe de dépendances lui-même reste
+      scopé à un seul projet (la limite documentée plus haut persiste pour la cascade automatique)
+
+- [x] BUG-011 Occurrences majeures disparues du fichier UI après import d'une solution multi-fichiers
+  - Signalé : après import de `gip/Summary.xml`, recherche de `prj__` / `emp__` dans l'onglet Tables du
+    fichier `Gestionnaire iPlus_fmp12.xml` → `PRJ__PROJETS` et `EMP__EMPLOYES` introuvables (alors que
+    présentes dans une analyse isolée du même fichier)
+  - Cause réelle : `DatabaseService` (mock en mémoire) indexait `mockTables`/`mockFields`/`mockLayouts`/
+    `mockScripts`/`mockCustomFunctions` par le simple `.id` de l'entité — or les id assignés par FileMaker
+    dans le DDR ne sont uniques **que dans un seul fichier exporté**, pas à travers toute une solution.
+    Le fichier UI et le fichier données réutilisent très souvent les mêmes id numériques pour des entités
+    différentes. Lorsque le second fichier de la solution finissait de parser (toujours après le premier,
+    séquentiellement — voir `parse-solution` dans `main/index.ts`), toute entité dont l'id entrait en
+    collision **écrasait silencieusement** l'entrée du premier projet dans la Map partagée — l'entité
+    survivante portant le `projectId` du second fichier, elle disparaissait du résultat de
+    `getTablesForProject()`/etc. pour le premier
+  - Reproduit hors UI : parser `Gestionnaire iPlus_fmp12.xml` (249 tables) puis `gip_data_fmp12.xml` dans
+    la même session serveur → re-requête du premier projet : 129 tables restantes, `PRJ__PROJETS` /
+    `EMP__EMPLOYES` / `T__TACHES` disparues (exactement le symptôme rapporté)
+  - Fix : clé composite `${projectId}:${id}` pour ces 5 Maps dans `database.service.ts` (aucun lecteur
+    n'utilisait de `.get(id)` direct sur ces Maps — uniquement `Array.from(map.values()).filter(...)` —
+    donc changement de clé sans risque de casser un autre appelant)
+  - Portée du bug : pas spécifique à une solution multi-fichiers via Summary.xml — se serait produit pour
+    **n'importe quels deux fichiers DDR** parsés dans la même session serveur sans redémarrage, dès qu'un
+    id se répète (fréquent, FileMaker attribue souvent de petits id séquentiels par fichier)
+  - Tests de régression : `tests/services/database.service.test.ts` (nouveau) — confirmé qu'ils échouent
+    sans le fix (`git stash` sur `database.service.ts` seul) et passent avec
+
 ---
 
 ## Phase 8 — Internationalisation (i18n) 💡 À FAIRE (plus tard)
@@ -347,6 +410,65 @@
   - Liste les champs `Calculation` et `Summary` non migrés (avec explication)
   - Liste les relations inter-fichiers qui deviennent cross-schema
   - Signale les champs sans type clair ou sans nom de clé primaire détectable
+
+---
+
+## Phase 11 — Vue tabulaire des Scripts ✅ COMPLÈTE
+
+### User Story
+> *Au même titre que TablesView pour les tables, je veux une vue tabulaire des scripts avec un
+> panneau de détail au clic (accès complet, inclusion menu, étapes lisibles, champs/scripts/layouts/
+> fonctions utilisés) — cf. l'export DDR HTML de référence (Script Name, Run script with full access
+> privileges, Layouts/Scripts that use this script, Script Definition, Fields/Scripts/Layouts/Custom
+> Functions used in this script).*
+
+- [x] T097 Parser : extraction robuste des scripts
+  - `ScriptCatalog` est organisé en dossiers (`Group`), exactement comme `LayoutCatalog` (T080) —
+    même bug non détecté jusqu'ici : seul un script sur XX était extrait sur de vraies solutions
+  - Extraire `runFullAccess`→`Script.runWithFullAccess`, `includeInMenu`→`Script.includeInMenu`
+    (jusqu'ici seul le chemin mort `handleOpenTag` les lisait, jamais le chemin actif)
+  - Chaque `<Step>` porte un `<StepText>` déjà formaté par FileMaker (ex: "Set Variable [ $x; Value:... ]")
+    → extrait tel quel comme `ScriptStep.text`, évite d'avoir à réimplémenter le rendu de chacune
+    des ~150 étapes FileMaker une par une
+  - Nouveau cas `Set Variable` (Value/Calculation + Name) — fréquent et riche en références
+  - `Layout.scripts` (toujours vide jusqu'ici) peuplé via `<ScriptTriggers>` (déclencheurs) et les
+    `<Step name="Perform Script">` imbriqués dans les boutons (découverts par la marche récursive
+    déjà construite pour l'extraction layout→champ, T080)
+  - Siri Shortcut Visible : aucun attribut correspondant trouvé dans les fixtures réelles disponibles
+    (probablement FM19+ uniquement) — non implémenté plutôt que deviner un nom d'attribut
+
+- [x] T098 Étendre le moteur de dépendances pour les scripts
+  - Nouveaux types d'arête `script-references-field` / `script-references-function` : heuristique
+    de calcul (déjà utilisée pour les champs calculés) appliquée aux steps `Set Variable`/`If`/
+    `Else If`/`Exit Script`/`Halt Script`
+  - Nouveau type d'arête `layout-triggers-script` (layout → script, via `Layout.scripts`) : symétrique
+    à `layout-shows-field`, permet aux dépendants d'un script d'inclure à la fois les scripts
+    appelants et les layouts qui le déclenchent (bouton/trigger)
+
+- [x] T099 Nouveau composant `ScriptsView.tsx` (miroir de `TablesView.tsx`)
+  - Liste triable/filtrable : nom, nb d'étapes, accès complet, inclusion menu
+  - Clic sur un script → drawer de détail : étapes lisibles (`StepText`, désactivées en grisé/barré),
+    tables/TOs utilisés (dérivés côté client des champs/layouts référencés, pas une nouvelle arête
+    dédiée), et `DependencyPanel` réutilisé tel quel pour dépendances/dépendants
+  - Découverte en vérifiant sur un vrai DDR : FileMaker représente les séparateurs du menu Scripts
+    comme de vrais scripts nommés `"-"` sans étape — filtrés côté UI (données brutes inchangées)
+  - Filtre de recherche rapide ajouté dans l'en-tête du tableau (`GridToolbarQuickFilter`), même
+    composant que celui de `TablesView`
+
+- [x] T100 Intégration navigation : nouvel onglet "Scripts" dans `App.tsx`
+  - Inséré entre Tables et Search → tous les index d'onglets décalés (Search 3→4, Visualize 4→5,
+    Export 5→6) ; mapping de navigation du DependencyPanel dans `SearchPanel.tsx` mis à jour en
+    conséquence (résultat de type `script` → onglet Scripts, `table`/`field`/`relationship` → Visualize)
+
+- [x] T101 Tests (parser + dependency service) + vérification GUI
+  - `tests/services/parser.scripts.test.ts` (6 tests) + 3 tests ajoutés à `dependency.service.test.ts`
+  - Vérifié sur `CRM_fmp12.xml` : 141 scripts extraits (vs 1 seul avant le fix Group — bug à fort impact
+    corrigé au passage), 258 références layout→script, script "File - Open" (132 étapes) correctement
+    affiché avec dépendances complètes
+
+### Limite connue (non traitée ici)
+- "Custom menu set used by this script" : aucun subsystem de custom menus n'existe dans l'app —
+  hors scope, nécessiterait une nouvelle catégorie d'entité à part entière
 
 ---
 

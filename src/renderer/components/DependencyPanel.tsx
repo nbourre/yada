@@ -24,6 +24,7 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import TableChartIcon from '@mui/icons-material/TableChart';
@@ -34,6 +35,7 @@ import CallMergeIcon from '@mui/icons-material/CallMerge';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import SecurityIcon from '@mui/icons-material/Security';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { DependencyEntityRef, DependencyNode, DependencyEdgeType, EntityType } from '../../models';
 import { ENTITY_TYPE_COLOR, ENTITY_TYPE_LABEL } from '../utils/entityColors';
 
@@ -54,8 +56,11 @@ const EDGE_TYPE_LABEL: Record<DependencyEdgeType, string> = {
   'script-navigates-layout': 'Go to Layout',
   'layout-shows-field': 'Champ sur layout',
   'layout-shows-field-via-portal': 'Champ via portail',
+  'layout-triggers-script': 'Déclenche le script',
   'field-references-field': 'Référencé dans un calcul',
   'field-references-function': 'Fonction utilisée',
+  'script-references-field': 'Référencé dans le script',
+  'script-references-function': 'Fonction utilisée dans le script',
 };
 
 interface DependencyResponse {
@@ -131,21 +136,50 @@ function NodeSection({
                     </TableCell>
                   </TableRow>
                   {grouped.get(level)!.map(node => (
-                    <TableRow key={`${node.entityType}:${node.entityId}`} hover>
+                    <TableRow
+                      key={`${node.entityType}:${node.entityId}`}
+                      hover
+                      sx={node.unresolved ? { opacity: 0.65 } : undefined}
+                    >
                       <TableCell>
-                        <Box display="flex" alignItems="center" gap={1}>
-                          <Box sx={{ color: ENTITY_TYPE_COLOR[node.entityType], display: 'flex' }}>
-                            {ENTITY_TYPE_ICON[node.entityType]}
-                          </Box>
-                          <Box>
-                            <Typography variant="body2">{node.entityName}</Typography>
-                            {node.tableName && (
-                              <Typography variant="caption" color="text.secondary">
-                                {node.tableName}
+                        <Tooltip
+                          title={
+                            node.unresolved
+                              ? (node.detail ?? 'Référence non résolue dans ce fichier')
+                              : ''
+                          }
+                          placement="top"
+                        >
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Box
+                              sx={{
+                                color: node.unresolved
+                                  ? 'text.disabled'
+                                  : ENTITY_TYPE_COLOR[node.entityType],
+                                display: 'flex',
+                              }}
+                            >
+                              {node.unresolved ? (
+                                <HelpOutlineIcon fontSize="small" />
+                              ) : (
+                                ENTITY_TYPE_ICON[node.entityType]
+                              )}
+                            </Box>
+                            <Box>
+                              <Typography
+                                variant="body2"
+                                sx={node.unresolved ? { fontStyle: 'italic' } : undefined}
+                              >
+                                {node.entityName}
                               </Typography>
-                            )}
+                              {node.tableName && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {node.tableName}
+                                </Typography>
+                              )}
+                            </Box>
                           </Box>
-                        </Box>
+                        </Tooltip>
                       </TableCell>
                       <TableCell>
                         <Chip
@@ -156,13 +190,15 @@ function NodeSection({
                         />
                       </TableCell>
                       <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          title="Naviguer vers"
-                          onClick={() => onNavigate?.(node)}
-                        >
-                          <ArrowForwardIcon fontSize="small" />
-                        </IconButton>
+                        {!node.unresolved && (
+                          <IconButton
+                            size="small"
+                            title="Naviguer vers"
+                            onClick={() => onNavigate?.(node)}
+                          >
+                            <ArrowForwardIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
