@@ -40,6 +40,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
 import { Table as TableModel, Field, DependencyEntityRef } from '../../models';
 import DependencyPanel from './DependencyPanel';
+import { useResizableWidth } from '../utils/useResizableWidth';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,6 +172,11 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
   const [fieldFilter, setFieldFilter] = useState('');
   const [sortColumn, setSortColumn] = useState<FieldSortColumn>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const { width: drawerWidth, onResizeStart } = useResizableWidth({
+    defaultWidth: 560,
+    min: 400,
+    storageKey: 'yada-tablesview-detail-width',
+  });
 
   useEffect(() => {
     setFieldFilter('');
@@ -211,9 +217,31 @@ function DetailDrawer({ table, onClose, onFieldClick }: DetailDrawerProps) {
       open={!!table}
       onClose={onClose}
       PaperProps={{
-        sx: { width: { xs: '100%', sm: 560 }, display: 'flex', flexDirection: 'column' },
+        sx: {
+          width: { xs: '100%', sm: drawerWidth },
+          display: 'flex',
+          flexDirection: 'column',
+        },
       }}
     >
+      {/* Poignée de redimensionnement — le Paper du Drawer est déjà en
+          position: fixed (nécessaire pour l'ancrage à droite), ce qui sert
+          aussi de contexte de positionnement pour ce handle en absolute. */}
+      <Box
+        onMouseDown={onResizeStart}
+        sx={{
+          display: { xs: 'none', sm: 'block' },
+          position: 'absolute',
+          left: -3,
+          top: 0,
+          bottom: 0,
+          width: 6,
+          cursor: 'col-resize',
+          zIndex: theme => theme.zIndex.drawer + 1,
+          '&:hover': { bgcolor: 'primary.main', opacity: 0.5 },
+        }}
+      />
+
       {/* En-tête */}
       <Box
         sx={{
