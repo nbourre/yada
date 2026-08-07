@@ -65,7 +65,10 @@ export class ApiService {
           cb(new Error('Only XML files are allowed'));
         }
       },
-      limits: { fileSize: 100 * 1024 * 1024 },
+      // Les exports DDR complets de grosses solutions peuvent dépasser largement
+      // 100 Mo (ex: fixture "abase" à ~141 Mo) — plafond généreux plutôt qu'une
+      // limite arbitraire proche de la taille des DDR réels rencontrés.
+      limits: { fileSize: 500 * 1024 * 1024 },
     });
   }
 
@@ -1568,6 +1571,15 @@ export class ApiService {
     // Error handler
     this.app.use((error: unknown, req: Request, res: Response, _next: unknown) => {
       console.error('API Error:', error);
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        this.sendError(
+          res,
+          'File too large — the maximum accepted size is 500MB',
+          413,
+          'FILE_TOO_LARGE'
+        );
+        return;
+      }
       this.sendError(res, 'Internal server error', 500);
     });
   }

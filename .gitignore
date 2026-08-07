@@ -145,3 +145,5 @@ electron-builder-output/
 # Temporary folders
 tmp/
 temp/
+
+/tests/fixtures/abase/

@@ -1,7 +1,7 @@
 # YADA — Suivi des tâches
 
 > Fichier de suivi actif. Mis à jour au fur et à mesure du développement.  
-> Dernière mise à jour : 2026-07-08
+> Dernière mise à jour : 2026-07-20
 
 ---
 
@@ -261,6 +261,21 @@
     id se répète (fréquent, FileMaker attribue souvent de petits id séquentiels par fichier)
   - Tests de régression : `tests/services/database.service.test.ts` (nouveau) — confirmé qu'ils échouent
     sans le fix (`git stash` sur `database.service.ts` seul) et passent avec
+
+- [x] BUG-012 Gros fichier DDR impossible à importer (fixture `abase/abase_fmp12.xml`, ~141 Mo)
+  - Demande : « J'ai un très gros fichier XML à extraire... Pourrais-tu le rendre parsable? »
+  - Cause : `multer` (upload middleware d'`/api/parse` dans `api.service.ts`) plafonnait `limits.fileSize`
+    à 100 Mo — tout fichier plus gros (upload navigateur **et** import local via Electron, qui passe aussi
+    par `/api/parse` en interne) était rejeté avant même d'atteindre le parseur
+  - Vérifié que le parseur lui-même n'a aucun problème avec un fichier de cette taille : parsing direct de
+    `abase_fmp12.xml` (141 Mo, hors limite d'upload) en ~4.4s, ~890 Mo de RSS, sans flag mémoire particulier
+    (20 tables, 3716 champs, 397 layouts, 1140 scripts, 767 relations) — donc uniquement un problème de
+    plafond arbitraire, pas de limite réelle de performance
+  - Fix : `limits.fileSize` relevé à 500 Mo ; ajout d'une réponse claire (413 `FILE_TOO_LARGE`) au lieu
+    d'une "Internal server error" générique si la nouvelle limite est un jour dépassée
+  - Vérifié de bout en bout via l'endpoint HTTP réel (upload multipart du fichier de 141 Mo) : 200 OK en
+    ~4.5s, puis dans l'UI (Tables : 620 tables listées, y compris la table de base `Abase` à 3001 champs
+    qui s'affiche sans souci dans le drawer de détail)
 
 ---
 
